@@ -10,7 +10,7 @@
 #include <usbh_midi.h>
 
 
-class ZoomMS70 : public ButtonListener {
+class ZoomMS : public ButtonListener {
 private:
     int                 _currentPatch;
     uint8_t             _prevPin;
@@ -29,6 +29,6 @@ private:
     void                loadPatch();
     void                savePatch();
 public:
-    ZoomMS70(uint8_t aPrevPin, uint8_t aNextPin, uint16_t aLongpressDelay, uint16_t aAutoCycleDelayMS);
+    ZoomMS(uint8_t aPrevPin, uint8_t aNextPin, uint16_t aLongpressDelay, uint16_t aAutoCycleDelayMS);
     void scan();
 };

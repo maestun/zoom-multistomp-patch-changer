@@ -1,4 +1,4 @@
-#include "zoomMS70.h"
+#include "ZoomMS.h"
 
 #define MAX_PATCHES                 (50)
 #define MIDI_BYTE_PROGRAM_CHANGE    (0xC0)
@@ -10,7 +10,7 @@
 USB       gUsb;
 USBH_MIDI gMidi(&gUsb);
 
-ZoomMS70::ZoomMS70(uint8_t aPrevPin, uint8_t aNextPin, uint16_t aLongpressDelayMS, uint16_t aAutoCycleDelayMS) {
+ZoomMS::ZoomMS(uint8_t aPrevPin, uint8_t aNextPin, uint16_t aLongpressDelayMS, uint16_t aAutoCycleDelayMS) {
 
     gUsb.Init();
     
@@ -27,7 +27,7 @@ ZoomMS70::ZoomMS70(uint8_t aPrevPin, uint8_t aNextPin, uint16_t aLongpressDelayM
 }
 
 
-void ZoomMS70::initDisplay() {
+void ZoomMS::initDisplay() {
   _display = new Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
     if(!_display->begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
         dprintln("SSD1306 allocation failed");
@@ -36,7 +36,7 @@ void ZoomMS70::initDisplay() {
 }
 
 
-void ZoomMS70::updateDisplay() {
+void ZoomMS::updateDisplay() {
     int dispPatch = _currentPatch + 1;
     _display->clearDisplay();
 
@@ -60,7 +60,7 @@ void ZoomMS70::updateDisplay() {
 }
 
 // send patch number thru MIDI
-void ZoomMS70::sendPatch() {
+void ZoomMS::sendPatch() {
     // send current patch number MIDI over USB
     dprint(F("Sending patch: "));
     dprintln(_currentPatch);
@@ -83,7 +83,7 @@ void ZoomMS70::sendPatch() {
 
 
 // load last patch number from eeprom
-void ZoomMS70::loadPatch() {
+void ZoomMS::loadPatch() {
     byte p = EEPROM.read(0);
     if (p > MAX_PATCHES) {
         p = 0;
@@ -93,12 +93,12 @@ void ZoomMS70::loadPatch() {
 
 
 // save current patch number to eeprom
-void ZoomMS70::savePatch() {
+void ZoomMS::savePatch() {
     EEPROM.write(0, _currentPatch);
 }
 
 
-void ZoomMS70::updatePatch(int inc) {
+void ZoomMS::updatePatch(int inc) {
     _currentPatch = _currentPatch + inc;
     _currentPatch = _currentPatch > (MAX_PATCHES - 1) ? 0 : _currentPatch;
     _currentPatch = _currentPatch < 0 ? (MAX_PATCHES -1) : _currentPatch;
@@ -106,7 +106,7 @@ void ZoomMS70::updatePatch(int inc) {
 
 
 // callback triggered on button event
-void ZoomMS70::onButtonEvent(uint8_t aPin, EButtonScanResult aResult) {
+void ZoomMS::onButtonEvent(uint8_t aPin, EButtonScanResult aResult) {
     bool prev = !!(aPin == _prevPin);
     
     dprint(prev ? "PREV " : "NEXT ");    
@@ -157,7 +157,7 @@ void ZoomMS70::onButtonEvent(uint8_t aPin, EButtonScanResult aResult) {
 
 
 // call this in main loop
-void ZoomMS70::scan() {
+void ZoomMS::scan() {
     _prevButton->scan();
     _nextButton->scan();
 }

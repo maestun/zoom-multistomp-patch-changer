@@ -11,7 +11,7 @@
 // - Adafruit_SSD1306 ( https://github.com/adafruit/Adafruit_SSD1306 )
 // -------------------------------------------------------------------------------
 #include "debug.h"
-#include "zoomMS70.h"
+#include "zoomMS.h"
 
 // Footswitch pins for patch increment / decrement.
 // Vcc ---> Button pin 1
@@ -27,12 +27,12 @@
 #define AUTOCYCLE_DELAY_MS          (250)
 
 
-ZoomMS70 * gZoom;
+ZoomMS * gZoom;
 
 
 void setup() {
     dprintinit(9600);
-    gZoom = new ZoomMS70(PIN_BUTTON_PREV, PIN_BUTTON_NEXT, LONGPRESS_THRESHOLD_MS, AUTOCYCLE_DELAY_MS);
+    gZoom = new ZoomMS(PIN_BUTTON_PREV, PIN_BUTTON_NEXT, LONGPRESS_THRESHOLD_MS, AUTOCYCLE_DELAY_MS);
 }
 
 
