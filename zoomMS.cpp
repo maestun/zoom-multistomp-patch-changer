@@ -10,10 +10,39 @@
 USB       gUsb;
 USBH_MIDI gMidi(&gUsb);
 
+enum EZoomDevice {
+    MS_50G = 0x58,
+    MS_70CDR = 0x61,
+    MS_60B = 0x5f
+};
+
+const __FlashStringHelper * getDeviceName(uint8_t aDeviceID) {
+    if(aDeviceID == MS_50G) {
+        return F("MS-50G");
+    }
+    else if(aDeviceID == MS_70CDR) {
+        return F("MS-70CDR");
+    }
+    else if(aDeviceID == MS_60B) {
+        return F("MS-60B");
+    }
+    return F("INVALID");
+}
+
+uint8_t getPatchDataLength(uint8_t aDeviceID) {
+    if(aDeviceID == MS_50G || aDeviceID == MS_70CDR) {
+        return 146;
+    }
+    else if(aDeviceID == MS_60B) {
+        return 105;
+    }
+    return 0;
+}
+
+
 ZoomMS::ZoomMS(uint8_t aPrevPin, uint8_t aNextPin, uint16_t aLongpressDelayMS, uint16_t aAutoCycleDelayMS) {
 
-    gUsb.Init();
-    
+    initUSB();
     loadPatch();
     initDisplay();
     _cycleTS = 0;
@@ -27,12 +56,98 @@ ZoomMS::ZoomMS(uint8_t aPrevPin, uint8_t aNextPin, uint16_t aLongpressDelayMS, u
 }
 
 
+void ZoomMS::initUSB() {
+    gUsb.Init();
+
+    dprintln(F("WILL INIT USB"));
+    int state = 0; 
+    int rcode = 0;
+    uint32_t wait_ms = 0;
+    int inc_ms = 100;
+    do {
+        gUsb.Task();
+        state = gUsb.getUsbTaskState();
+        dprint(F("USB STATE: "));
+        dprintln(state);
+        delay(inc_ms);
+        wait_ms += inc_ms;
+    } while(state != USB_STATE_RUNNING);
+
+    dprintln(F("USB RUNNING !"));
+    dprint(F("Exit loop wait time (ms): "));
+    dprintln(wait_ms);
+    wait_ms = 0;
+
+    // identify
+    uint8_t pak[] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
+    gUsb.Task();
+    rcode = gMidi.SendData(pak);
+    dprint(F("Request ID returns "));
+    dprintln(rcode);
+
+    // wait for response    
+    uint8_t recv[MIDI_EVENT_PACKET_SIZE];
+    uint16_t recv_count;
+
+    gUsb.Task();
+    rcode = gMidi.RecvData(&recv_count, recv);
+
+    //data check
+    dprintln("Data: ");
+    for(int i = 0; i < MIDI_EVENT_PACKET_SIZE; i++) {
+        Serial.print(recv[i], HEX);
+        dprint(" ");
+    }
+    dprintln("");
+    dprint(F("RecvData rcode: "));
+    dprintln(rcode);
+    dprint(F("RecvData count: "));
+    dprintln(recv_count);
+
+    // parse get ID message
+    _deviceID = recv[9];
+    char fw_version[5] = {0};
+    fw_version[0] = recv[14];
+    fw_version[1] = recv[15];
+    fw_version[2] = recv[17];
+    fw_version[3] = recv[18];
+
+    dprint(F("DEVICE ID: "));
+    dprintln(_deviceID);
+
+    dprint(F("DEVICE NAME: "));
+    dprintln(getDeviceName(_deviceID));
+
+    dprint(F("DEVICE FW: "));
+    dprintln(fw_version);
+
+    dprint(F("DEVICE PLEN: "));
+    dprintln(getPatchDataLength(_deviceID));
+
+    // _display->clearDisplay();
+    // _display->setTextSize(2);
+    // _display->setCursor(1, 1);
+    // _display->setTextColor(SSD1306_WHITE);
+    // _display->println(getDeviceName(_deviceID));
+    // _display->setCursor(1, 16);
+    // // _display->println(fw_version);
+    // _display->display();
+
+    delay(1000);
+}
+
+
 void ZoomMS::initDisplay() {
-  _display = new Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+    _display = new Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
     if(!_display->begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
         dprintln("SSD1306 allocation failed");
     }
     _display->clearDisplay();
+    _display->setTextSize(2);
+    _display->setCursor(1, 1);
+    _display->setTextColor(SSD1306_WHITE);
+    _display->println("INIT...");
+    _display->display();
 }
 
 
@@ -59,6 +174,7 @@ void ZoomMS::updateDisplay() {
     _display->display();
 }
 
+
 // send patch number thru MIDI
 void ZoomMS::sendPatch() {
     // send current patch number MIDI over USB
@@ -66,11 +182,14 @@ void ZoomMS::sendPatch() {
     dprintln(_currentPatch);
 
     gUsb.Task();
-    if(gUsb.getUsbTaskState() == USB_STATE_RUNNING) {
-        
+    int state = gUsb.getUsbTaskState();
+    if(state == USB_STATE_RUNNING) {
         byte pak[2] = {MIDI_BYTE_PROGRAM_CHANGE, _currentPatch};
         gMidi.SendData(pak);
-        delay(50);
+    }
+    else {
+        dprint("USB STATE: ");
+        dprintln(state);
     }
 
     /*

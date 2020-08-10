@@ -14,6 +14,7 @@ class ZoomMS : public ButtonListener {
 private:
     int                 _currentPatch;
     uint8_t             _prevPin;
+    uint8_t             _deviceID;
     uint8_t             _nextPin;
     uint32_t            _cycleTS;
     uint16_t            _cycleMS;
@@ -23,6 +24,7 @@ private:
     
     void                onButtonEvent(uint8_t aPin, EButtonScanResult aResult);
     void                initDisplay();
+    void                initUSB();
     void                updateDisplay();
     void                updatePatch(int inc);
     void                sendPatch();
