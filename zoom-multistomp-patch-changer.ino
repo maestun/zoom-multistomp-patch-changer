@@ -24,7 +24,7 @@
 #define LONGPRESS_THRESHOLD_MS      (1000)
 
 // Delay (in milliseconds) between two patch increments.
-#define AUTOCYCLE_DELAY_MS          (250)
+#define AUTOCYCLE_DELAY_MS          (300)
 
 
 ZoomMS * gZoom;

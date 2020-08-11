@@ -25,8 +25,9 @@ Change the current patch of your Zoom MultiStomp pedal using an Arduino Pro Mini
 
 ### TODOs and issues
 
-- This has been tested on the MS-70CDR model only.
-- The first button pushes seem to be ignored by the Zoom. It'll respond after a few seconds.
+- This has been tested on the MS-70CDR model only. MS-60B and MS-50G devices should also be supported.
+- Fast clicking or scrolling thru presets will now sends commands, but there are data losses happening.
+- Holding both footswitches could enable/disable the tuner :)
 - When changing the current patch on the Zoom itself, the internal state of the controller should be updated as well.
 - The USB Host Shield could be modded so that +5v power with sufficient current is sent through the USB port, thus removing the need for the Zoom's power supply.
 

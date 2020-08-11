@@ -7,8 +7,9 @@
 #define SCREEN_WIDTH                128 // OLED display width, in pixels
 #define SCREEN_HEIGHT               32 // OLED display height, in pixels
 
-USB       gUsb;
-USBH_MIDI gMidi(&gUsb);
+USB         gUsb;
+USBH_MIDI   gMidi(&gUsb);
+uint8_t     gReadBuffer[MIDI_MAX_SYSEX_SIZE] = {0};
 
 enum EZoomDevice {
     MS_50G = 0x58,
@@ -29,37 +30,99 @@ const __FlashStringHelper * getDeviceName(uint8_t aDeviceID) {
     return F("INVALID");
 }
 
-uint8_t getPatchDataLength(uint8_t aDeviceID) {
-    if(aDeviceID == MS_50G || aDeviceID == MS_70CDR) {
-        return 146;
-    }
-    else if(aDeviceID == MS_60B) {
-        return 105;
-    }
-    return 0;
-}
-
 
 ZoomMS::ZoomMS(uint8_t aPrevPin, uint8_t aNextPin, uint16_t aLongpressDelayMS, uint16_t aAutoCycleDelayMS) {
-
-    initUSB();
-    loadPatch();
-    initDisplay();
+    
     _cycleTS = 0;
     _cycleMS = aAutoCycleDelayMS;
     _prevPin = aPrevPin;
     _nextPin = aNextPin;
     _prevButton = new Button(_prevPin, aLongpressDelayMS, this);
     _nextButton = new Button(_nextPin, aLongpressDelayMS, this);
-    sendPatch();
+
+    initDisplay();
+    initDevice();
     updateDisplay();
 }
 
 
-void ZoomMS::initUSB() {
+void debugReadBuffer(char * aMessage, bool aIsSysEx) {
+#ifdef _DEBUG
+    dprintln(aMessage);
+    int i = 0;
+    for(i = 0; i < MIDI_MAX_SYSEX_SIZE; i++) {
+        dprint("0x");         
+        hprint(gReadBuffer[i]);
+        dprint(", ");
+        if(aIsSysEx && gReadBuffer[i] == 0xf7) {
+            i++;
+            break;
+        }
+    }
+    dprintln("");
+    dprint("NUM BYTES: ");
+    dprintln(i);
+#endif
+}
+
+
+void ZoomMS::sendBytes(uint8_t * aBytes, char * aMessage) {
+    dprintln(aMessage);
+    gUsb.Task();
+    uint8_t rcode = gMidi.SendData(aBytes);
+    dprint("rcode: ");
+    dprintln(rcode);
+}
+
+
+void ZoomMS::readResponse() {
+   
+    uint16_t recv_read = 0;
+    uint16_t recv_count = 0;
+    uint8_t rcode = 0;
+
+    delay(100);
+    dprintln("readResponse");
+    
+    gUsb.Task();
+    do {
+        rcode = gMidi.RecvData(&recv_read, (uint8_t *)(gReadBuffer + recv_count));
+        if(rcode == 0) {
+            recv_count += recv_read;
+            dprintln("rcode");
+            dprintln(rcode);
+            dprintln("recv_read");
+            dprintln(recv_read);
+            dprintln("recv_count");
+            dprintln(recv_count);
+        }
+        else {
+            dprintln("*** BAD rcode");
+            dprintln(rcode);
+        }
+    } while(recv_count < MIDI_MAX_SYSEX_SIZE && rcode == 0);
+
+    // debug
+    debugReadBuffer("RAW READ: ", true);
+
+    // remove MIDI packet's 1st byte
+    for(int i = 0, j = 0; i < MIDI_MAX_SYSEX_SIZE; i++) {
+        // TODO: stop at 0xf7 when sysex
+        gReadBuffer[j++] = gReadBuffer[++i];
+        gReadBuffer[j++] = gReadBuffer[++i];
+        gReadBuffer[j++] = gReadBuffer[++i];
+    }
+
+    debugReadBuffer("SYSEX READ: ", true);
+    
+    dprintln("--> readResponse DONE");
+}
+
+
+void ZoomMS::initDevice() {
     gUsb.Init();
 
-    dprintln(F("WILL INIT USB"));
+    dprintln(F("INIT USB"));
     int state = 0; 
     int rcode = 0;
     uint32_t wait_ms = 0;
@@ -73,47 +136,31 @@ void ZoomMS::initUSB() {
         wait_ms += inc_ms;
     } while(state != USB_STATE_RUNNING);
 
-    dprintln(F("USB RUNNING !"));
-    dprint(F("Exit loop wait time (ms): "));
+    dprint(F("USB RUNNING "));
+    dprint(F(" - Exit loop wait time ms: "));
     dprintln(wait_ms);
-    wait_ms = 0;
-
+    
     // identify
     uint8_t pak[] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
-    gUsb.Task();
-    rcode = gMidi.SendData(pak);
-    dprint(F("Request ID returns "));
-    dprintln(rcode);
+    sendBytes(pak, "REQ ID");
+    readResponse();
 
-    // wait for response    
-    uint8_t recv[MIDI_EVENT_PACKET_SIZE];
-    uint16_t recv_count;
-
-    gUsb.Task();
-    rcode = gMidi.RecvData(&recv_count, recv);
-
-    //data check
-    dprintln("Data: ");
-    for(int i = 0; i < MIDI_EVENT_PACKET_SIZE; i++) {
-        Serial.print(recv[i], HEX);
-        dprint(" ");
+    _deviceID = gReadBuffer[6];
+    if(_deviceID == MS_50G || _deviceID == MS_70CDR) {
+        _patchLen = 146;
     }
-    dprintln("");
-    dprint(F("RecvData rcode: "));
-    dprintln(rcode);
-    dprint(F("RecvData count: "));
-    dprintln(recv_count);
+    else {
+        _patchLen = 105;
+    }
 
-    // parse get ID message
-    _deviceID = recv[9];
     char fw_version[5] = {0};
-    fw_version[0] = recv[14];
-    fw_version[1] = recv[15];
-    fw_version[2] = recv[17];
-    fw_version[3] = recv[18];
+    fw_version[0] = gReadBuffer[10];
+    fw_version[1] = gReadBuffer[11];
+    fw_version[2] = gReadBuffer[12];
+    fw_version[3] = gReadBuffer[13];
 
-    dprint(F("DEVICE ID: "));
-    dprintln(_deviceID);
+    dprint(F("DEVICE ID: 0x"));
+    hprintln(_deviceID);
 
     dprint(F("DEVICE NAME: "));
     dprintln(getDeviceName(_deviceID));
@@ -121,57 +168,54 @@ void ZoomMS::initUSB() {
     dprint(F("DEVICE FW: "));
     dprintln(fw_version);
 
-    dprint(F("DEVICE PLEN: "));
-    dprintln(getPatchDataLength(_deviceID));
+    dprint(F("PATCH LEN: "));
+    dprintln(_patchLen);
 
-    // _display->clearDisplay();
-    // _display->setTextSize(2);
-    // _display->setCursor(1, 1);
-    // _display->setTextColor(SSD1306_WHITE);
-    // _display->println(getDeviceName(_deviceID));
-    // _display->setCursor(1, 16);
-    // // _display->println(fw_version);
-    // _display->display();
+    _display->clearDisplay();
+    _display->setTextSize(2);
+    _display->setCursor(0, 0);
+    _display->setTextColor(SSD1306_WHITE);
+    _display->println(getDeviceName(_deviceID));
+    _display->setCursor(0, 16);
+    _display->println(fw_version);
+    _display->display();
 
-    delay(1000);
+    uint8_t pd_pak[] = { 0xf0, 0x52, 0x00, _deviceID, 0x33, 0xf7 };
+    sendBytes(pd_pak, "REQ PATCH INDEX");
+
+    readResponse();
+    _currentPatch = gReadBuffer[7];
+    dprint(F("Current patch: "));
+    dprintln(_currentPatch);
+
+    uint8_t em_pak[] = { 0xf0, 0x52, 0x00, _deviceID, 0x50, 0xf7 };
+    sendBytes(em_pak, "SET EDITOR ON");
+    requestPatchData();
+    
+    delay(1500);
 }
 
 
-void ZoomMS::initDisplay() {
-    _display = new Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-    if(!_display->begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
-        dprintln("SSD1306 allocation failed");
-    }
-    _display->clearDisplay();
-    _display->setTextSize(2);
-    _display->setCursor(1, 1);
-    _display->setTextColor(SSD1306_WHITE);
-    _display->println("INIT...");
-    _display->display();
-}
+void ZoomMS::requestPatchData() {
 
+    uint8_t pd_pak[] = { 0xf0, 0x52, 0x00, _deviceID, 0x29, 0xf7 };
+    sendBytes(pd_pak, "REQ PATCH DATA");
+    readResponse();
 
-void ZoomMS::updateDisplay() {
-    int dispPatch = _currentPatch + 1;
-    _display->clearDisplay();
+    _currentPatchName[0] = gReadBuffer[_patchLen - 14];
+    _currentPatchName[1] = gReadBuffer[_patchLen - 12];
+    _currentPatchName[2] = gReadBuffer[_patchLen - 11];
+    _currentPatchName[3] = gReadBuffer[_patchLen - 10];
+    _currentPatchName[4] = gReadBuffer[_patchLen - 9];
+    _currentPatchName[5] = gReadBuffer[_patchLen - 8];
+    _currentPatchName[6] = gReadBuffer[_patchLen - 7];
+    _currentPatchName[7] = gReadBuffer[_patchLen - 6];
+    _currentPatchName[8] = gReadBuffer[_patchLen - 4];
+    _currentPatchName[9] = gReadBuffer[_patchLen - 3];
+    _currentPatchName[10] = '\0';
 
-    dprint(F("CURRENT PATCH: "));
-    dprintln(dispPatch);
-
-    _display->setTextSize(4);
-    _display->setTextColor(SSD1306_WHITE);
-    _display->setCursor(76, 1);
-
-    if (dispPatch < 10) {
-        _display->print("0");  
-    }
-    _display->print(dispPatch);
-
-    _display->setTextSize(2);
-    _display->setCursor(1, 1);
-
-    _display->println("PATCH");
-    _display->display();
+    dprint("Name: ");
+    dprintln(_currentPatchName);
 }
 
 
@@ -182,63 +226,63 @@ void ZoomMS::sendPatch() {
     dprintln(_currentPatch);
 
     gUsb.Task();
-    int state = gUsb.getUsbTaskState();
-    if(state == USB_STATE_RUNNING) {
-        byte pak[2] = {MIDI_BYTE_PROGRAM_CHANGE, _currentPatch};
-        gMidi.SendData(pak);
-    }
-    else {
-        dprint("USB STATE: ");
-        dprintln(state);
-    }
-
-    /*
-    midiEventPacket_t pak = {0x0c, 0xc0 | 0, _currentPatch, 0x00};
-    MidiUSB.sendMIDI(pak);
-    MidiUSB.flush();
-    */
-    delay(5);
+    uint8_t pak[2] = {MIDI_BYTE_PROGRAM_CHANGE, _currentPatch};
+    gMidi.SendData(pak);
 }
 
 
-// load last patch number from eeprom
-void ZoomMS::loadPatch() {
-    byte p = EEPROM.read(0);
-    if (p > MAX_PATCHES) {
-        p = 0;
+void ZoomMS::initDisplay() {
+    _display = new Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+    if(!_display->begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
+        dprintln("SSD1306 allocation failed");
     }
-    _currentPatch = p;
+    _display->clearDisplay();
+    _display->setTextSize(2);
+    _display->setCursor(0, 0);
+    _display->setTextColor(SSD1306_WHITE);
+    _display->println("USB INIT");
+    _display->display();
 }
 
 
-// save current patch number to eeprom
-void ZoomMS::savePatch() {
-    EEPROM.write(0, _currentPatch);
+void ZoomMS::updateDisplay() {
+    int dispPatch = _currentPatch + 1;
+    _display->clearDisplay();
+
+    _display->setTextColor(SSD1306_WHITE);
+    _display->setTextSize(2);
+    _display->setCursor(0, 0);
+    _display->println(_currentPatchName);
+    _display->setCursor(100, 16);
+    if (dispPatch < 10) {
+        _display->print("0");  
+    }
+    _display->println(dispPatch);
+    _display->display();
 }
 
 
-void ZoomMS::updatePatch(int inc) {
-    _currentPatch = _currentPatch + inc;
+void ZoomMS::incPatch(bool aIsPrev) {
+    _currentPatch = _currentPatch + (aIsPrev ? -1 : 1);
     _currentPatch = _currentPatch > (MAX_PATCHES - 1) ? 0 : _currentPatch;
     _currentPatch = _currentPatch < 0 ? (MAX_PATCHES -1) : _currentPatch;
+
+    sendPatch();
+    requestPatchData();
+    updateDisplay();
 }
 
 
 // callback triggered on button event
 void ZoomMS::onButtonEvent(uint8_t aPin, EButtonScanResult aResult) {
-    bool prev = !!(aPin == _prevPin);
+    bool isPrev = !!(aPin == _prevPin);
     
-    dprint(prev ? "PREV " : "NEXT ");    
+    dprint(isPrev ? "PREV " : "NEXT ");
 
     if(aResult == EButtonDown) {
         // button down
         dprintln(F("DOWN"));
-                
-        int inc = (prev ? -1 : 1);
-        updatePatch(inc);
-        sendPatch();
-        updateDisplay();
-        savePatch();
+
     }
     else if(aResult == EButtonLongpress) {
         // button longpressed
@@ -250,23 +294,27 @@ void ZoomMS::onButtonEvent(uint8_t aPin, EButtonScanResult aResult) {
         uint32_t ts = millis();
         if((ts - _cycleTS) >= _cycleMS) {
             _cycleTS = ts;
-            // update patch display but do not send !!
-            int inc = (prev ? -1 : 1);
-            updatePatch(inc);
-            updateDisplay();
+            incPatch(isPrev);
+            // sendPatch();
+            // requestPatchData();
+            // updateDisplay();
         }
     }
     else if(aResult == EButtonUnlongpress) {
         // button released from longpress
         dprintln(F("UNLONG"));
         _cycleTS = 0;
-        sendPatch();
-        updateDisplay();
-        savePatch();
+        // sendPatch();
+        // requestPatchData();
+        // updateDisplay();
     }
     else if(aResult == EButtonClick) {
         // button clicked
         dprintln(F("CLICK"));
+        incPatch(isPrev);
+        // sendPatch();
+        // requestPatchData();
+        // updateDisplay();
     }
     else if(aResult == EButtonUp) {
         // button released from shortpress: ignore
