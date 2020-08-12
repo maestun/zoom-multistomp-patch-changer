@@ -200,14 +200,14 @@ void readResponse(bool aIsSysEx = true) {
 }
 
 
-
 // ----------------------------------------------------------------------------
 // ZOOM DEVICE I/O
 // ----------------------------------------------------------------------------
 void initDevice() {
     _usb.Init();
 
-    dprintln(F("INIT USB"));
+	updateDisplay(F(" USB INIT "), 0, 0);
+        
     int state = 0; 
     int rcode = 0;
     uint32_t wait_ms = 0;
@@ -329,7 +329,13 @@ void requestPatchData() {
 void toggleTuner() {
 	_tunerEnabled = !_tunerEnabled;
 	TU_PAK[2] = _tunerEnabled ? 0x41 : 0x0;
-    sendBytes(TU_PAK, _tunerEnabled ? F("TUNER ON") : F("TUNER OFF"));
+    sendBytes(TU_PAK);
+	if(_tunerEnabled) {
+    	updateDisplay(F(" TUNER ON "), 0, 0);
+	}
+    else {
+    	updateDisplay();
+    }
 }
 
 
@@ -352,12 +358,8 @@ void initDisplay() {
     if(!_display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
         dprintln(F("SSD1306 allocation failed"));
     }
-    _display.clearDisplay();
     _display.setTextSize(2);
     _display.setTextColor(SSD1306_WHITE);
-    _display.setCursor(0, 0);
-    _display.println("USB INIT");
-    _display.display();
 }
 
 
@@ -371,6 +373,14 @@ void updateDisplay() {
         _display.print("0");  
     }
     _display.println(p);
+    _display.display();
+}
+
+
+void updateDisplay(const __FlashStringHelper * aMessage, uint16_t aX, uint16_t aY) {
+    _display.clearDisplay();
+    _display.setCursor(aX, aY);
+    _display.println(aMessage);
     _display.display();
 }
 
