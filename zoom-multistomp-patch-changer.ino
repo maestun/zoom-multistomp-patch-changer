@@ -111,7 +111,7 @@ void loop() {
 // ----------------------------------------------------------------------------
 // HELPERS
 // ----------------------------------------------------------------------------
-void debu_readBuffer(char * aMessage, bool aIsSysEx) {
+void debugReadBuffer(const __FlashStringHelper * aMessage, bool aIsSysEx) {
 #ifdef _DEBUG
     dprintln(aMessage);
     int i = 0;
@@ -125,7 +125,7 @@ void debu_readBuffer(char * aMessage, bool aIsSysEx) {
         }
     }
     dprintln("");
-    dprint("NUM BYTES: ");
+    dprint(F("NUM BYTES: "));
     dprintln(i);
 #endif
 }
@@ -145,7 +145,7 @@ void incPatch(bool aIsPrev) {
 }
 
 
-void sendBytes(uint8_t * aBytes, char * aMessage) {
+void sendBytes(uint8_t * aBytes, const __FlashStringHelper * aMessage) {
     dprintln(aMessage);
     _usb.Task();
     uint8_t rcode = _midi.SendData(aBytes);
@@ -155,34 +155,33 @@ void sendBytes(uint8_t * aBytes, char * aMessage) {
 
 
 void readResponse() {
-   
     uint16_t recv_read = 0;
     uint16_t recv_count = 0;
     uint8_t rcode = 0;
 
     delay(100); // TODO: fine-tune this
-    dprintln("readResponse");
+    dprintln(F("readResponse"));
     
     _usb.Task();
     do {
         rcode = _midi.RecvData(&recv_read, (uint8_t *)(_readBuffer + recv_count));
         if(rcode == 0) {
             recv_count += recv_read;
-            dprintln("rcode");
+            dprintln(F("rcode"));
             dprintln(rcode);
-            dprintln("recv_read");
+            dprintln(F("recv_read"));
             dprintln(recv_read);
-            dprintln("recv_count");
+            dprintln(F("recv_count"));
             dprintln(recv_count);
         }
         else {
-            dprintln("*** BAD rcode");
+            dprintln(F("*** BAD rcode"));
             dprintln(rcode);
         }
     } while(recv_count < MIDI_MAX_SYSEX_SIZE && rcode == 0);
 
     // debug
-    debu_readBuffer("RAW READ: ", true);
+    debugReadBuffer(F("RAW READ: "), true);
 
     // remove MIDI packet's 1st byte
     for(int i = 0, j = 0; i < MIDI_MAX_SYSEX_SIZE; i++) {
@@ -192,9 +191,7 @@ void readResponse() {
         _readBuffer[j++] = _readBuffer[++i];
     }
 
-    debu_readBuffer("SYSEX READ: ", true);
-    
-    dprintln("--> readResponse DONE");
+    debugReadBuffer(F("SYSEX READ: "), true);
 }
 
 
@@ -225,7 +222,7 @@ void initDevice() {
     
     // identify
     uint8_t pak[] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
-    sendBytes(pak, "REQ ID");
+    sendBytes(pak, F("REQ ID"));
     readResponse();
 
     _deviceID = _readBuffer[6];
@@ -281,7 +278,7 @@ void initDevice() {
     _display.display();
 
     uint8_t pd_pak[] = { 0xf0, 0x52, 0x00, _deviceID, 0x33, 0xf7 };
-    sendBytes(pd_pak, "REQ PATCH INDEX");
+    sendBytes(pd_pak, F("REQ PATCH INDEX"));
 
     readResponse();
     _currentPatch = _readBuffer[7];
@@ -289,7 +286,7 @@ void initDevice() {
     dprintln(_currentPatch);
 
     uint8_t em_pak[] = { 0xf0, 0x52, 0x00, _deviceID, 0x50, 0xf7 };
-    sendBytes(em_pak, "SET EDITOR ON");
+    sendBytes(em_pak, F("SET EDITOR ON"));
     requestPatchData();
     
     _tunerEnabled = false;
@@ -300,7 +297,7 @@ void initDevice() {
 
 void requestPatchData() {
     uint8_t pd_pak[] = { 0xf0, 0x52, 0x00, _deviceID, 0x29, 0xf7 };
-    sendBytes(pd_pak, "REQ PATCH DATA");
+    sendBytes(pd_pak, F("REQ PATCH DATA"));
     readResponse();
 
     _currentPatchName[0] = _readBuffer[_patchLen - 14];
@@ -315,7 +312,7 @@ void requestPatchData() {
     _currentPatchName[9] = _readBuffer[_patchLen - 3];
     _currentPatchName[10] = '\0';
 
-    dprint("Name: ");
+    dprint(F("Name: "));
     dprintln(_currentPatchName);
 }
 
@@ -323,7 +320,7 @@ void requestPatchData() {
 void toggleTuner() {
 	_tunerEnabled = !_tunerEnabled;
     uint8_t pak[] = { 0xb0, 0x4a, _tunerEnabled ? 0x41 : 0x0 };
-    sendBytes(pak, _tunerEnabled ? "TUNER ON" : "TUNER OFF");   
+    sendBytes(pak, _tunerEnabled ? F("TUNER ON") : F("TUNER OFF"));
 }
 
 
@@ -344,7 +341,7 @@ void sendPatch() {
 // ----------------------------------------------------------------------------
 void initDisplay() {
     if(!_display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
-        dprintln("SSD1306 allocation failed");
+        dprintln(F("SSD1306 allocation failed"));
     }
     _display.clearDisplay();
     _display.setTextSize(2);
