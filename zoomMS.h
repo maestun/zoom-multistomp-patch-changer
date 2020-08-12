@@ -13,6 +13,7 @@ private:
     char                _currentPatchName[11];
     int                 _patchLen;
     uint8_t             _deviceID;
+    bool                _tuner;
 
     // button stuff
     uint8_t             _prevPin;
@@ -47,6 +48,7 @@ private:
     void                readResponse();
     void                sendBytes(uint8_t * aBytes, char * aMessage);
     void                sendPatch();
+    void                sendTuner(bool aEnable);
 
 public:
     ZoomMS(uint8_t aPrevPin, uint8_t aNextPin, uint16_t aLongpressDelay, uint16_t aAutoCycleDelayMS);

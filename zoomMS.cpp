@@ -192,6 +192,8 @@ void ZoomMS::initDevice() {
     sendBytes(em_pak, "SET EDITOR ON");
     requestPatchData();
     
+    _tuner = false;
+
     delay(1500);
 }
 
@@ -216,6 +218,12 @@ void ZoomMS::requestPatchData() {
 
     dprint("Name: ");
     dprintln(_currentPatchName);
+}
+
+
+void ZoomMS::sendTuner(bool aEnable) {
+    uint8_t pak[] = { 0xb0, 0x4a, aEnable ? 0x41 : 0x0 };
+    sendBytes(pak, aEnable ? "TUNER ON" : "TUNER OFF");   
 }
 
 
@@ -295,26 +303,17 @@ void ZoomMS::onButtonEvent(uint8_t aPin, EButtonScanResult aResult) {
         if((ts - _cycleTS) >= _cycleMS) {
             _cycleTS = ts;
             incPatch(isPrev);
-            // sendPatch();
-            // requestPatchData();
-            // updateDisplay();
         }
     }
     else if(aResult == EButtonUnlongpress) {
         // button released from longpress
         dprintln(F("UNLONG"));
         _cycleTS = 0;
-        // sendPatch();
-        // requestPatchData();
-        // updateDisplay();
     }
     else if(aResult == EButtonClick) {
         // button clicked
         dprintln(F("CLICK"));
         incPatch(isPrev);
-        // sendPatch();
-        // requestPatchData();
-        // updateDisplay();
     }
     else if(aResult == EButtonUp) {
         // button released from shortpress: ignore
