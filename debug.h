@@ -1,6 +1,6 @@
 #include <Arduino.h>
 
-// #define _DEBUG (1)
+#define _DEBUG (1)
 
 #ifdef _DEBUG
 #define     dprintinit(x)           Serial.begin(x)

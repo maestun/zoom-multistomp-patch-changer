@@ -64,11 +64,12 @@ OneButton 			_btPrev(A2, true);
 Adafruit_SSD1306 	_display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, PIN_OLED_RESET);
 
 // device stuff
-int8_t              _currentPatch;
-char                _currentPatchName[11];
+int8_t              _currentPatch = 0;
+char                _currentPatchName[11] = {0};
 uint8_t             _patchLen;
 uint8_t             _deviceID;
-bool                _tunerEnabled;
+uint8_t             _isReading = false;
+bool                _tunerEnabled = false;
 
 
 // ----------------------------------------------------------------------------
@@ -98,7 +99,6 @@ void setup() {
     _btPrev.attachLongPressStart(onPrevLongStart);
     _btPrev.attachDuringLongPress(onPrevLongHold);  
     _btPrev.attachLongPressStop(onPrevLongStop);
-    
 }
 
 
@@ -109,10 +109,10 @@ void loop() {
 
 
 // ----------------------------------------------------------------------------
-// HELPERS
+// DEBUG
 // ----------------------------------------------------------------------------
 void debugReadBuffer(const __FlashStringHelper * aMessage, bool aIsSysEx) {
-#ifdef _DEBUG
+#ifdef _DEBUG_IO
     dprintln(aMessage);
     int i = 0;
     for(i = 0; i < MIDI_MAX_SYSEX_SIZE; i++) {
@@ -167,17 +167,22 @@ void readResponse() {
         rcode = _midi.RecvData(&recv_read, (uint8_t *)(_readBuffer + recv_count));
         if(rcode == 0) {
             recv_count += recv_read;
+#ifdef _DEBUG_IO
             dprintln(F("rcode"));
             dprintln(rcode);
             dprintln(F("recv_read"));
             dprintln(recv_read);
             dprintln(F("recv_count"));
             dprintln(recv_count);
+#endif
         }
+#ifdef _DEBUG_IO
         else {
+
             dprintln(F("*** BAD rcode"));
             dprintln(rcode);
         }
+#endif
     } while(recv_count < MIDI_MAX_SYSEX_SIZE && rcode == 0);
 
     // debug
@@ -277,23 +282,27 @@ void initDevice() {
     _display.println(fw_version);
     _display.display();
 
-    uint8_t pd_pak[] = { 0xf0, 0x52, 0x00, _deviceID, 0x33, 0xf7 };
-    sendBytes(pd_pak, F("REQ PATCH INDEX"));
-
-    readResponse();
-    _currentPatch = _readBuffer[7];
-    dprint(F("Current patch: "));
-    dprintln(_currentPatch);
-
-    uint8_t em_pak[] = { 0xf0, 0x52, 0x00, _deviceID, 0x50, 0xf7 };
-    sendBytes(em_pak, F("SET EDITOR ON"));
-    requestPatchData();
-    
-    _tunerEnabled = false;
+    requestPatchIndex();
+    enableEditorMode(true);
 
     delay(1500);
 }
 
+
+void enableEditorMode(bool aEnable) {
+	uint8_t em_pak[] = { 0xf0, 0x52, 0x00, _deviceID, aEnable ? 0x50 : 0x51, 0xf7 };
+    sendBytes(em_pak, F("EDITOR ON"));
+}
+
+
+void requestPatchIndex() {
+    uint8_t pd_pak[] = { 0xf0, 0x52, 0x00, _deviceID, 0x33, 0xf7 };
+    sendBytes(pd_pak, F("REQ PATCH INDEX"));
+    readResponse();
+    _currentPatch = _readBuffer[7];
+    dprint(F("Current patch: "));
+    dprintln(_currentPatch);
+}
 
 void requestPatchData() {
     uint8_t pd_pak[] = { 0xf0, 0x52, 0x00, _deviceID, 0x29, 0xf7 };
