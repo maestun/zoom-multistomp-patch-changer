@@ -57,6 +57,7 @@ uint16_t  			_cycleMS = 200;
 bool      			_btNextDown = false;
 bool      			_btPrevDown = false;
 bool      			_isScrolling = false;
+bool 				_cancelScroll = false;
 OneButton 			_btNext(A1, true);
 OneButton 			_btPrev(A2, true);
 
@@ -88,7 +89,7 @@ uint8_t 			PC_PAK[] = { 0xc0, 0x00 /* program number */ };
 // MAIN
 // ----------------------------------------------------------------------------
 void setup() {
-    dprintinit(9600);
+    dprintinit(115200);
 
     // peripheral init
     initDisplay();
@@ -304,6 +305,7 @@ void requestPatchIndex() {
     dprintln(_currentPatch);
 }
 
+
 void requestPatchData() {
     PD_PAK[3] = _deviceID;
     sendBytes(PD_PAK, F("REQ PATCH DATA"));
@@ -335,11 +337,13 @@ void toggleTuner() {
 	}
     else {
     	updateDisplay();
+    	// this flag will prevent patch scrolling 
+    	// if buttons are released not quite simultaneously
+    	_cancelScroll = true;
     }
 }
 
 
-// send patch number thru MIDI
 void sendPatch() {
     // send current patch number MIDI over USB
     dprint(F("Sending patch: "));
@@ -388,22 +392,32 @@ void updateDisplay(const __FlashStringHelper * aMessage, uint16_t aX, uint16_t a
 // ----------------------------------------------------------------------------
 // BUTTON CALLBACKS
 // ----------------------------------------------------------------------------
+
+// ============================================================================
+// Toggle tuner only if:
+// - we're not scrolling through the patches
+// - both buttons are being longpressed
 void onNextLongStart() {
+	_cancelScroll = false;
     if(_btPrev.isLongPressed() == true && _isScrolling == false) {
         toggleTuner();
     }
 }
 void onPrevLongStart() {
+	_cancelScroll = false;
     if(_btNext.isLongPressed() == true && _isScrolling == false) {
         toggleTuner();
     }
 }
 
 
+// ============================================================================
+// Scroll through patches only if:
+// - tuner is disabled AND
+// - the other button is not currently pressed
 void onNextLongHold() {
   if(_tunerEnabled == false && 
-     // _btPrev.isLongPressed() == false &&
-     // _btNextDown == false &&
+  	 _cancelScroll == false &&
      _btPrevDown == false) {
 
         _isScrolling = true;
@@ -417,8 +431,7 @@ void onNextLongHold() {
 } 
 void onPrevLongHold() {
     if(_tunerEnabled == false && 
-       // _btNext.isLongPressed() == false &&
-       // _btPrevDown == false && 
+       _cancelScroll == false &&
        _btNextDown == false) {
 
         _isScrolling = true;
@@ -432,6 +445,8 @@ void onPrevLongHold() {
 }
 
 
+// ============================================================================
+// Reset button state
 void onNextLongStop() {
     _btNextDown = false;
     _isScrolling = false;
@@ -442,6 +457,10 @@ void onPrevLongStop() {
 }
 
 
+// ============================================================================
+// Single patch increment only if: 
+// - tuner is disabled AND
+// - we're not scrolling with the other button
 void onNextClicked() {
     if(_tunerEnabled == false && !_isScrolling) {
         incPatch(1);
