@@ -68,8 +68,20 @@ int8_t              _currentPatch = 0;
 char                _currentPatchName[11] = {0};
 uint8_t             _patchLen;
 uint8_t             _deviceID;
-uint8_t             _isReading = false;
 bool                _tunerEnabled = false;
+// id request
+uint8_t 			ID_PAK[] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
+// set editor mode on / off
+uint8_t 			EM_PAK[] = { 0xf0, 0x52, 0x00, 0xff /* device ID */, 0x50 /* 0x50: on - 0x51: off */, 0xf7 };
+// get patch index
+uint8_t 			PI_PAK[] = { 0xf0, 0x52, 0x00, 0xff /* device ID */, 0x33, 0xf7 };
+// get patch data
+uint8_t 			PD_PAK[] = { 0xf0, 0x52, 0x00, 0xff /* device ID */, 0x29, 0xf7 };
+// set tuner mode on / off
+uint8_t 			TU_PAK[] = { 0xb0, 0x4a, 0x00 /* 0x41: on - 0x0: off */ };
+// program change
+uint8_t 			PC_PAK[] = { 0xc0, 0x00 /* program number */ };
+
 
 
 // ----------------------------------------------------------------------------
@@ -112,7 +124,6 @@ void loop() {
 // DEBUG
 // ----------------------------------------------------------------------------
 void debugReadBuffer(const __FlashStringHelper * aMessage, bool aIsSysEx) {
-#ifdef _DEBUG_IO
     dprintln(aMessage);
     int i = 0;
     for(i = 0; i < MIDI_MAX_SYSEX_SIZE; i++) {
@@ -127,15 +138,14 @@ void debugReadBuffer(const __FlashStringHelper * aMessage, bool aIsSysEx) {
     dprintln("");
     dprint(F("NUM BYTES: "));
     dprintln(i);
-#endif
 }
 
 
 // ----------------------------------------------------------------------------
 // ZOOM DEVICE HELPERS
 // ----------------------------------------------------------------------------
-void incPatch(bool aIsPrev) {
-    _currentPatch = _currentPatch + (aIsPrev ? -1 : 1);
+void incPatch(int8_t aOffset) {
+    _currentPatch = _currentPatch + aOffset;
     _currentPatch = _currentPatch > (DEV_MAX_PATCHES - 1) ? 0 : _currentPatch;
     _currentPatch = _currentPatch < 0 ? (DEV_MAX_PATCHES -1) : _currentPatch;
 
@@ -145,48 +155,38 @@ void incPatch(bool aIsPrev) {
 }
 
 
-void sendBytes(uint8_t * aBytes, const __FlashStringHelper * aMessage) {
+void sendBytes(uint8_t * aBytes, const __FlashStringHelper * aMessage = NULL) {
     dprintln(aMessage);
     _usb.Task();
-    uint8_t rcode = _midi.SendData(aBytes);
-    dprint(F("sendBytes rcode: "));
-    dprintln(rcode);
+    _midi.SendData(aBytes);
 }
 
 
-void readResponse() {
+void readResponse(bool aIsSysEx = true) {
     uint16_t recv_read = 0;
     uint16_t recv_count = 0;
     uint8_t rcode = 0;
 
-    delay(100); // TODO: fine-tune this
+    delay(200); // TODO: fine-tune this
     dprintln(F("readResponse"));
-    
+            
     _usb.Task();
     do {
         rcode = _midi.RecvData(&recv_read, (uint8_t *)(_readBuffer + recv_count));
+		dprintln(F("rcode"));
+        dprintln(rcode);
+
         if(rcode == 0) {
             recv_count += recv_read;
-#ifdef _DEBUG_IO
-            dprintln(F("rcode"));
-            dprintln(rcode);
             dprintln(F("recv_read"));
             dprintln(recv_read);
             dprintln(F("recv_count"));
             dprintln(recv_count);
-#endif
         }
-#ifdef _DEBUG_IO
-        else {
-
-            dprintln(F("*** BAD rcode"));
-            dprintln(rcode);
-        }
-#endif
-    } while(recv_count < MIDI_MAX_SYSEX_SIZE && rcode == 0);
+    } while(/*recv_count < MIDI_MAX_SYSEX_SIZE &&*/ rcode == 0);
 
     // debug
-    debugReadBuffer(F("RAW READ: "), true);
+    // debugReadBuffer(F("RAW READ: "), true);
 
     // remove MIDI packet's 1st byte
     for(int i = 0, j = 0; i < MIDI_MAX_SYSEX_SIZE; i++) {
@@ -196,7 +196,7 @@ void readResponse() {
         _readBuffer[j++] = _readBuffer[++i];
     }
 
-    debugReadBuffer(F("SYSEX READ: "), true);
+    // debugReadBuffer(F("SYSEX READ: "), true);
 }
 
 
@@ -226,8 +226,7 @@ void initDevice() {
     dprintln(wait_ms);
     
     // identify
-    uint8_t pak[] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
-    sendBytes(pak, F("REQ ID"));
+    sendBytes(ID_PAK, F("REQ ID"));
     readResponse();
 
     _deviceID = _readBuffer[6];
@@ -284,20 +283,21 @@ void initDevice() {
 
     requestPatchIndex();
     enableEditorMode(true);
-
+    requestPatchData();
     delay(1500);
 }
 
 
 void enableEditorMode(bool aEnable) {
-	uint8_t em_pak[] = { 0xf0, 0x52, 0x00, _deviceID, aEnable ? 0x50 : 0x51, 0xf7 };
-    sendBytes(em_pak, F("EDITOR ON"));
+	EM_PAK[3] = _deviceID;
+	EM_PAK[4] = aEnable ? 0x50 : 0x51;
+    sendBytes(EM_PAK, F("EDITOR ON"));
 }
 
 
 void requestPatchIndex() {
-    uint8_t pd_pak[] = { 0xf0, 0x52, 0x00, _deviceID, 0x33, 0xf7 };
-    sendBytes(pd_pak, F("REQ PATCH INDEX"));
+    PI_PAK[3] = _deviceID;
+    sendBytes(PI_PAK, F("REQ PATCH INDEX"));
     readResponse();
     _currentPatch = _readBuffer[7];
     dprint(F("Current patch: "));
@@ -305,8 +305,8 @@ void requestPatchIndex() {
 }
 
 void requestPatchData() {
-    uint8_t pd_pak[] = { 0xf0, 0x52, 0x00, _deviceID, 0x29, 0xf7 };
-    sendBytes(pd_pak, F("REQ PATCH DATA"));
+    PD_PAK[3] = _deviceID;
+    sendBytes(PD_PAK, F("REQ PATCH DATA"));
     readResponse();
 
     _currentPatchName[0] = _readBuffer[_patchLen - 14];
@@ -328,8 +328,8 @@ void requestPatchData() {
 
 void toggleTuner() {
 	_tunerEnabled = !_tunerEnabled;
-    uint8_t pak[] = { 0xb0, 0x4a, _tunerEnabled ? 0x41 : 0x0 };
-    sendBytes(pak, _tunerEnabled ? F("TUNER ON") : F("TUNER OFF"));
+	TU_PAK[2] = _tunerEnabled ? 0x41 : 0x0;
+    sendBytes(TU_PAK, _tunerEnabled ? F("TUNER ON") : F("TUNER OFF"));
 }
 
 
@@ -340,8 +340,8 @@ void sendPatch() {
     dprintln(_currentPatch);
 
     _usb.Task();
-    uint8_t pak[] = {0xc0, _currentPatch};
-    _midi.SendData(pak);
+    PC_PAK[1] = _currentPatch;
+    _midi.SendData(PC_PAK);
 }
 
 
