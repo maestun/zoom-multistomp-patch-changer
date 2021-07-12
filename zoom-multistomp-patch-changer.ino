@@ -58,8 +58,8 @@ bool      			_btNextDown = false;
 bool      			_btPrevDown = false;
 bool      			_isScrolling = false;
 bool 				_cancelScroll = false;
-OneButton 			_btNext(A1, true);
-OneButton 			_btPrev(A2, true);
+OneButton 			_btNext(PIN_BUTTON_PREV, true);
+OneButton 			_btPrev(PIN_BUTTON_NEXT, true);
 
 // display stuff
 Adafruit_SSD1306 	_display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, PIN_OLED_RESET);
@@ -146,12 +146,17 @@ void debugReadBuffer(const __FlashStringHelper * aMessage, bool aIsSysEx) {
 // ZOOM DEVICE HELPERS
 // ----------------------------------------------------------------------------
 void incPatch(int8_t aOffset) {
-    _currentPatch = _currentPatch + aOffset;
+
+    enableEditorMode(true);
+    requestPatchIndex();
+
+      _currentPatch = _currentPatch + aOffset;
     _currentPatch = _currentPatch > (DEV_MAX_PATCHES - 1) ? 0 : _currentPatch;
     _currentPatch = _currentPatch < 0 ? (DEV_MAX_PATCHES -1) : _currentPatch;
 
     sendPatch();
     requestPatchData();
+    enableEditorMode(false);
     updateDisplay();
 }
 
@@ -282,8 +287,8 @@ void initDevice() {
     _display.println(fw_version);
     _display.display();
 
-    requestPatchIndex();
     enableEditorMode(true);
+    requestPatchIndex();
     requestPatchData();
     delay(1500);
 }
