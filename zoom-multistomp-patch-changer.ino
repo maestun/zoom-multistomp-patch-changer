@@ -303,9 +303,25 @@ void enableEditorMode(bool aEnable) {
 
 void requestPatchIndex() {
     PI_PAK[3] = _deviceID;
-    sendBytes(PI_PAK, F("REQ PATCH INDEX"));
-    readResponse();
-    _currentPatch = _readBuffer[7];
+    bool gotPatch = false;
+    //try 3 times to get the current patch
+    for(int ct = 0; ct < 3 && !gotPatch; ct++) {
+        dprint(F("requestPatchIndex attempt:"));
+        dprintln(ct);
+        
+        sendBytes(PI_PAK, F("REQ PATCH INDEX"));
+        readResponse();
+        // if byte 6 of the response is 0xC0 then we have a patch number in byte 7 
+        gotPatch = (_readBuffer[6] == 0xC0);
+    }
+     
+    debugReadBuffer(F("SYSEX READ: "), true);
+    if(!gotPatch) {
+        dprintln(F("Failed to get current patch"));
+        //this would only be a problem if patch had previously been changed on the pedal, in which case it will use _currentPatch
+    } else {
+        _currentPatch = _readBuffer[7];
+    }
     dprint(F("Current patch: "));
     dprintln(_currentPatch);
 }
