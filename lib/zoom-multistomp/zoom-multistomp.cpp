@@ -1,5 +1,33 @@
 
-#include "zoom-multistomp.hpp"
+#include <Arduino.h>
+#include <zoom-multistomp.h>
+
+#ifdef _DEBUG
+#define     dprintinit(x)           Serial.begin(x)
+#define     dprint(x)               Serial.print(x)
+#define     dprintln(x)             Serial.println(x)
+#define     hprint(x)               Serial.print(x, HEX)
+#define     hprintln(x)             Serial.println(x, HEX)
+#else
+#define     dprintinit(x)
+#define     dprint(x)
+#define     dprintln(x)
+#define     hprint(x)
+#define     hprintln(x)
+#endif
+
+// Zoom device characteristics, don't change
+#define DEV_MAX_PATCHES             (50)
+#define DEV_ID_MS_50G 				(0x58)
+#define DEV_ID_MS_70CDR 			(0x61)
+#define DEV_ID_MS_60B 				(0x5f)
+#define DEV_PLEN_MS_50G 			(146)
+#define DEV_PLEN_MS_70CDR 			(146)
+#define DEV_PLEN_MS_60B 			(105)
+#define DEV_NAME_MS_50G				F("MS-50G")
+#define DEV_NAME_MS_70CDR			F("MS-70CDR")
+#define DEV_NAME_MS_60G				F("MS-60G")
+#define DEV_NAME_INVALID			F("INVALID")
 
 // id request
 uint8_t 			ID_PAK[] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
@@ -26,18 +54,19 @@ void ZoomMSDevice::incPatch(int8_t aOffset) {
 
     sendPatch();
     requestPatchData();
-    updateDisplay();
+    // updateDisplay();
+    _listener.onPatchInc();
 }
 
 
-void ZoomMSDevice::sendBytes(uint8_t * aBytes, const __FlashStringHelper * aMessage = NULL) {
+void ZoomMSDevice::sendBytes(uint8_t * aBytes, const __FlashStringHelper * aMessage) {
     dprintln(aMessage);
     _usb.Task();
     _midi.SendData(aBytes);
 }
 
 
-void ZoomMSDevice::readResponse(bool aIsSysEx = true) {
+void ZoomMSDevice::readResponse(bool aIsSysEx) {
     uint16_t recv_read = 0;
     uint16_t recv_count = 0;
     uint8_t rcode = 0;
@@ -78,20 +107,22 @@ void ZoomMSDevice::readResponse(bool aIsSysEx = true) {
 // ----------------------------------------------------------------------------
 // ZOOM DEVICE I/O
 // ----------------------------------------------------------------------------
-void ZoomMSDevice() {
+ZoomMSDevice::ZoomMSDevice(ZoomMSDeviceListener& listener) : 
+    _midi(&_usb),
+    _listener(listener) {
+
     _usb.Init();
 
-	updateDisplay(F(" USB INIT "), 0, 0);
+	// updateDisplay(F(" USB INIT "), 0, 0);
         
     int state = 0; 
-    int rcode = 0;
     uint32_t wait_ms = 0;
     int inc_ms = 100;
     do {
         _usb.Task();
         state = _usb.getUsbTaskState();
-        dprint(F("USB STATE: "));
-        dprintln(state);
+        // dprint(F("USB STATE: "));
+        // dprintln(state);
         delay(inc_ms);
         wait_ms += inc_ms;
     } while(state != USB_STATE_RUNNING);
@@ -149,12 +180,13 @@ void ZoomMSDevice() {
     dprint(F("PATCH LEN: "));
     dprintln(_patchLen);
 
-    _display.clearDisplay();
-    _display.setCursor(0, 0);
-    _display.println(device_name);
-    _display.setCursor(0, 16);
-    _display.println(fw_version);
-    _display.display();
+    // _display.clearDisplay();
+    // _display.setCursor(0, 0);
+    // _display.println(device_name);
+    // _display.setCursor(0, 16);
+    // _display.println(fw_version);
+    // _display.display();
+    _listener.onDeviceReady(device_name, fw_version);
 
     requestPatchIndex();
     enableEditorMode(true);
@@ -203,18 +235,26 @@ void ZoomMSDevice::requestPatchData() {
 
 
 void ZoomMSDevice::toggleTuner() {
-	_tunerEnabled = !_tunerEnabled;
-	TU_PAK[2] = _tunerEnabled ? 0x41 : 0x0;
+    enableTuner(!_tunerEnabled);
+}
+
+
+void ZoomMSDevice::enableTuner(bool aEnable) {
+    _tunerEnabled = aEnable;
+    TU_PAK[2] = _tunerEnabled ? 0x41 : 0x0;
     sendBytes(TU_PAK);
-	if(_tunerEnabled) {
-    	updateDisplay(F(" TUNER ON "), 0, 0);
-	}
-    else {
-    	updateDisplay();
+	if(!_tunerEnabled) {
     	// this flag will prevent patch scrolling 
     	// if buttons are released not quite simultaneously
     	_cancelScroll = true;
     }
+    _listener.onTunerEnabled(_tunerEnabled);
+
+}
+
+
+bool ZoomMSDevice::tunerEnabled() {
+    return _tunerEnabled;
 }
 
 
@@ -228,3 +268,25 @@ void ZoomMSDevice::sendPatch() {
     _midi.SendData(PC_PAK);
 }
 
+
+
+
+// ----------------------------------------------------------------------------
+// DEBUG
+// ----------------------------------------------------------------------------
+void ZoomMSDevice::debugReadBuffer(const __FlashStringHelper * aMessage, bool aIsSysEx) {
+    dprintln(aMessage);
+    int i = 0;
+    for(i = 0; i < MIDI_MAX_SYSEX_SIZE; i++) {
+        dprint("0x");         
+        hprint(_readBuffer[i]);
+        dprint(", ");
+        if(aIsSysEx && _readBuffer[i] == 0xf7) {
+            i++;
+            break;
+        }
+    }
+    dprintln("");
+    dprint(F("NUM BYTES: "));
+    dprintln(i);
+}
