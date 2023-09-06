@@ -83,6 +83,22 @@ uint8_t 			TU_PAK[] = { 0xb0, 0x4a, 0x00 /* 0x41: on - 0x0: off */ };
 // program change
 uint8_t 			PC_PAK[] = { 0xc0, 0x00 /* program number */ };
 
+void initDisplay();
+void initDevice();
+void updateDisplay();
+void updateDisplay(const __FlashStringHelper * aMessage, uint16_t aX, uint16_t aY);
+void onNextClicked();
+void onPrevClicked();
+void onNextLongStart();
+void onPrevLongStart();
+void onNextLongHold();
+void onPrevLongHold();
+void onNextLongStop();
+void onPrevLongStop();
+void sendPatch();
+void requestPatchData();
+void requestPatchIndex();
+void enableEditorMode(bool aEnable);
 
 
 // ----------------------------------------------------------------------------
@@ -210,7 +226,7 @@ void initDevice() {
 	updateDisplay(F(" USB INIT "), 0, 0);
         
     int state = 0; 
-    int rcode = 0;
+    // int rcode = 0;
     uint32_t wait_ms = 0;
     int inc_ms = 100;
     do {
