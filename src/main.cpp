@@ -12,8 +12,9 @@
 // ----------------------------------------------------------------------------
 
 #include "debug.h"
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include "display_oled.h"
+// #include <Adafruit_GFX.h>
+// #include <Adafruit_SSD1306.h>
 #include <Usb.h>
 #include <usbh_midi.h>
 #include <OneButton.h>
@@ -39,9 +40,9 @@
 #define AUTOCYCLE_DELAY_MS          (250)
 
 // display stuff
-#define PIN_OLED_RESET              (-1)
-#define SCREEN_WIDTH                (128)
-#define SCREEN_HEIGHT               (32)
+// #define PIN_OLED_RESET              (-1)
+// #define SCREEN_WIDTH                (128)
+// #define SCREEN_HEIGHT               (32)
 
 
 // ----------------------------------------------------------------------------
@@ -63,7 +64,7 @@ OneButton 			_btNext(A1, true);
 OneButton 			_btPrev(A2, true);
 
 // display stuff
-Adafruit_SSD1306 	_display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, PIN_OLED_RESET);
+// Adafruit_SSD1306 	display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, PIN_OLED_RESET);
 
 // device stuff
 int8_t              _currentPatch = 0;
@@ -86,10 +87,10 @@ uint8_t 			PC_PAK[] = { 0xc0, 0x00 /* program number */ };
 
 
 void sendPatch();
-void initDisplay();
+// void initDisplay();
 void initDevice();
-void updateDisplay();
-void updateDisplay(const __FlashStringHelper * aMessage, uint16_t aX, uint16_t aY);
+// void updateDisplay();
+// void updateDisplay(const __FlashStringHelper * aMessage, uint16_t aX, uint16_t aY);
 void onNextClicked();
 void onPrevClicked();
 void onNextLongHold();
@@ -102,6 +103,7 @@ void enableEditorMode(bool aEnable);
 void requestPatchIndex();
 void requestPatchData();
 
+IDisplay* display = nullptr;
 
 // ----------------------------------------------------------------------------
 // MAIN
@@ -109,10 +111,17 @@ void requestPatchData();
 void setup() {
     dprintinit(115200);
 
+    #ifdef USE_OLED
+        display = new OLEDDisplay();
+    #elif defined(USE_LCD)
+        display = new LCDDisplay();
+    #endif
+
     // peripheral init
-    initDisplay();
+    // initDisplay();
     initDevice();
-    updateDisplay();
+    // updateDisplay();
+    display->showPatch(_currentPatch, _currentPatchName);
 
     // button init
     _btNext.attachPressStart([]() {
@@ -170,7 +179,8 @@ void incPatch(int8_t aOffset) {
 
     sendPatch();
     requestPatchData();
-    updateDisplay();
+    // updateDisplay();
+    display->showPatch(_currentPatch, _currentPatchName);
 }
 
 
@@ -225,7 +235,7 @@ void readResponse(bool aIsSysEx = true) {
 void initDevice() {
     _usb.Init();
 
-	updateDisplay(F(" USB INIT "), 0, 0);
+    display->showString(F(" USB INIT "), 0, 0);
         
     int state = 0; 
     uint32_t wait_ms = 0;
@@ -292,12 +302,16 @@ void initDevice() {
     dprint(F("PATCH LEN: "));
     dprintln(_patchLen);
 
-    _display.clearDisplay();
-    _display.setCursor(0, 0);
-    _display.println(device_name);
-    _display.setCursor(0, 16);
-    _display.println(fw_version);
-    _display.display();
+
+    display->clear();
+    display->showString(device_name, 0, 0);
+    display->showString(fw_version, 0, 16);
+    // display.clearDisplay();
+    // display.setCursor(0, 0);
+    // display.println(device_name);
+    // display.setCursor(0, 16);
+    // display.println(fw_version);
+    // display.display();
 
     requestPatchIndex();
     enableEditorMode(true);
@@ -350,10 +364,12 @@ void toggleTuner() {
 	TU_PAK[2] = _tunerEnabled ? 0x41 : 0x0;
     sendBytes(TU_PAK);
 	if(_tunerEnabled) {
-    	updateDisplay(F(" TUNER ON "), 0, 0);
+        display->showString(F(" TUNER ON "), 0, 0);
+    	// updateDisplay(F(" TUNER ON "), 0, 0);
 	}
     else {
-    	updateDisplay();
+        display->showPatch(_currentPatch, _currentPatchName);
+    	// updateDisplay();
     	// this flag will prevent patch scrolling 
     	// if buttons are released not quite simultaneously
     	_cancelScroll = true;
@@ -375,35 +391,35 @@ void sendPatch() {
 // ----------------------------------------------------------------------------
 // DISPLAY HELPERS
 // ----------------------------------------------------------------------------
-void initDisplay() {
-    if(!_display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
-        dprintln(F("SSD1306 allocation failed"));
-    }
-    _display.setTextSize(2);
-    _display.setTextColor(SSD1306_WHITE);
-}
+// void initDisplay() {
+//     if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
+//         dprintln(F("SSD1306 allocation failed"));
+//     }
+//     display.setTextSize(2);
+//     display.setTextColor(SSD1306_WHITE);
+// }
 
 
-void updateDisplay() {
-    uint8_t p = _currentPatch + 1;
-    _display.clearDisplay();
-    _display.setCursor(0, 0);
-    _display.println(_currentPatchName);
-    _display.setCursor(100, 16);
-    if (p < 10) {
-        _display.print("0");  
-    }
-    _display.println(p);
-    _display.display();
-}
+// void updateDisplay() {
+//     uint8_t p = _currentPatch + 1;
+//     display.clearDisplay();
+//     display.setCursor(0, 0);
+//     display.println(_currentPatchName);
+//     display.setCursor(100, 16);
+//     if (p < 10) {
+//         display.print("0");  
+//     }
+//     display.println(p);
+//     display.display();
+// }
 
 
-void updateDisplay(const __FlashStringHelper * aMessage, uint16_t aX, uint16_t aY) {
-    _display.clearDisplay();
-    _display.setCursor(aX, aY);
-    _display.println(aMessage);
-    _display.display();
-}
+// void updateDisplay(const __FlashStringHelper * aMessage, uint16_t aX, uint16_t aY) {
+//     display.clearDisplay();
+//     display.setCursor(aX, aY);
+//     display.println(aMessage);
+//     display.display();
+// }
 
 
 // ----------------------------------------------------------------------------
