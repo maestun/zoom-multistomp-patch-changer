@@ -36,10 +36,12 @@
 #define DEV_MAX_FX_PER_PATCH        (5)
 
 // footswitch pins for patch next / prev with internal pullup resistors
+// LCD / OLED SDA -> A4
+// LCD / OLED SCL -> A5
 #define PIN_BUTTON_NEXT             (A1)
 #define PIN_BUTTON_PREV             (A2)
 #define PIN_BUTTON_BYPASS           (A3)
-#define PIN_LED_BYPASS              (3)
+// #define PIN_LED_BYPASS              (10)
 
 // delay (in milliseconds) between two patch increments while scrolling
 #define AUTOCYCLE_DELAY_MS          (250)
@@ -93,8 +95,8 @@ void sendPatch();
 void initDevice();
 void onNextClicked();
 void onPrevClicked();
-void onBypassClicked();
-void onFullBypassClicked();
+// void onBypassClicked();
+// void onFullBypassClicked();
 void onNextLongHold();
 void onPrevLongHold();
 void onNextLongStart();
@@ -110,7 +112,7 @@ void requestPatchData();
 // MAIN
 // ----------------------------------------------------------------------------
 void setup() {
-    dprintinit(115200);
+    dprintinit(9600);
 
     #ifdef USE_OLED
         display = new OLEDDisplay();
@@ -118,14 +120,18 @@ void setup() {
         display = new LCDDisplay();
     #endif
 
-    pinMode(PIN_LED_BYPASS, OUTPUT);
+    // pinMode(PIN_LED_BYPASS, OUTPUT);
+    // digitalWrite(PIN_LED_BYPASS, LOW);
 
     display->clear();
-    display->showString(F("ZOOM MS REMOTE"), 0, 0);
-    delay(2000);
+    display->showString(F(" ZOOM MS REMOTE "), 0, 0);
+    dprintln(F("DISP INIT"));
+    delay(1000);
 
     // peripheral init
     initDevice();
+    dprintln(F("DISP INIT"));
+
     display->showPatch(_currentPatch, _currentPatchName);
 
     // button init
@@ -145,8 +151,8 @@ void setup() {
     _btPrev.attachDuringLongPress(onPrevLongHold);  
     _btPrev.attachLongPressStop(onPrevLongStop);
 
-    _btBypass.attachClick(onBypassClicked);
-    _btBypass.attachLongPressStart(onFullBypassClicked);
+    // _btBypass.attachClick(onBypassClicked);
+    // _btBypass.attachLongPressStart(onFullBypassClicked);
 }
 
 
@@ -240,9 +246,11 @@ void readResponse(bool aIsSysEx = true) {
 // ZOOM DEVICE I/O
 // ----------------------------------------------------------------------------
 void initDevice() {
-    _usb.Init();
+    uint8_t ret = _usb.Init();
+    dprint(F("USB ret: "));
+    dprintln(ret);
 
-    display->showString(F(" USB INIT "), 0, 0);
+    display->showString(F("    USB INIT    "), 0, 0);
         
     int state = 0; 
     uint32_t wait_ms = 0;
@@ -376,25 +384,25 @@ void toggleTuner() {
 }
 
 
-void toggleBypass() {
-	_bypassEnabled = !_bypassEnabled;
-    BP_PAK[5] = 0; // consider the 1st slot to be the line selector
-	BP_PAK[7] = _bypassEnabled ? 0x1 : 0x0;
-    sendBytes(BP_PAK);
-    digitalWrite(PIN_LED_BYPASS, !_bypassEnabled);
-}
+// void toggleBypass() {
+// 	_bypassEnabled = !_bypassEnabled;
+//     BP_PAK[5] = 0; // consider the 1st slot to be the line selector
+// 	BP_PAK[7] = _bypassEnabled ? 0x1 : 0x0;
+//     sendBytes(BP_PAK);
+//     digitalWrite(PIN_LED_BYPASS, !_bypassEnabled);
+// }
 
 
-void toggleFullBypass() {
-	_bypassEnabled = !_bypassEnabled;
+// void toggleFullBypass() {
+// 	_bypassEnabled = !_bypassEnabled;
     
-    BP_PAK[7] = _bypassEnabled ? 0x1 : 0x0;
-    for (int i = 0; i < DEV_MAX_FX_PER_PATCH; i++) {
-        BP_PAK[5] = i;
-        sendBytes(BP_PAK);
-    }
-	digitalWrite(PIN_LED_BYPASS, !_bypassEnabled);
-}
+//     BP_PAK[7] = _bypassEnabled ? 0x1 : 0x0;
+//     for (int i = 0; i < DEV_MAX_FX_PER_PATCH; i++) {
+//         BP_PAK[5] = i;
+//         sendBytes(BP_PAK);
+//     }
+// 	digitalWrite(PIN_LED_BYPASS, !_bypassEnabled);
+// }
 
 
 void sendPatch() {
@@ -498,13 +506,13 @@ void onPrevClicked() {
 // Toggle bypass only if: 
 // - tuner is disabled AND
 // - we're not scrolling
-void onBypassClicked() {
-    if(_tunerEnabled == false && !_isScrolling) {
-        toggleBypass();
-    }
-}
-void onFullBypassClicked() {
-    if(_tunerEnabled == false && !_isScrolling) {
-        toggleFullBypass();
-    }
-}
+// void onBypassClicked() {
+//     if(_tunerEnabled == false && !_isScrolling) {
+//         toggleBypass();
+//     }
+// }
+// void onFullBypassClicked() {
+//     if(_tunerEnabled == false && !_isScrolling) {
+//         toggleFullBypass();
+//     }
+// }
