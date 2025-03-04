@@ -6,6 +6,7 @@ LiquidCrystal_I2C _display(0x27, 16, 2);  // set the LCD address to 0x27 for a 1
 
 LCDDisplay::LCDDisplay() {
     _display.init();
+    _display.backlight();
 }
 
 void LCDDisplay::clear() {

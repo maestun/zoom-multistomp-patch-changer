@@ -7,17 +7,19 @@
 //
 // Libraries used:
 // - USB Host Shield Library v2.0 ( https://github.com/felis/USB_Host_Shield_2.0 )
-// - Adafruit_SSD1306 ( https://github.com/adafruit/Adafruit_SSD1306 )
 // - OneButton ( https://github.com/mathertel/OneButton )
 // ----------------------------------------------------------------------------
 
-#include "debug.h"
-#include "display_oled.h"
-// #include <Adafruit_GFX.h>
-// #include <Adafruit_SSD1306.h>
 #include <Usb.h>
 #include <usbh_midi.h>
 #include <OneButton.h>
+
+#include "debug.h"
+#ifdef USE_OLED
+#  include "display_oled.h"
+#elif defined(USE_LCD)
+#  include "display_lcd.h"
+#endif
 
 // Zoom device characteristics, don't change
 #define DEV_MAX_PATCHES             (50)
@@ -31,19 +33,16 @@
 #define DEV_NAME_MS_70CDR			F("MS-70CDR")
 #define DEV_NAME_MS_60G				F("MS-60G")
 #define DEV_NAME_INVALID			F("INVALID")
+#define DEV_MAX_FX_PER_PATCH        (5)
 
 // footswitch pins for patch next / prev with internal pullup resistors
-#define PIN_BUTTON_PREV             (A1)
-#define PIN_BUTTON_NEXT             (A2)
+#define PIN_BUTTON_NEXT             (A1)
+#define PIN_BUTTON_PREV             (A2)
+#define PIN_BUTTON_BYPASS           (A3)
+#define PIN_LED_BYPASS              (3)
 
 // delay (in milliseconds) between two patch increments while scrolling
 #define AUTOCYCLE_DELAY_MS          (250)
-
-// display stuff
-// #define PIN_OLED_RESET              (-1)
-// #define SCREEN_WIDTH                (128)
-// #define SCREEN_HEIGHT               (32)
-
 
 // ----------------------------------------------------------------------------
 // GLOBALS
@@ -60,11 +59,12 @@ bool      			_btNextDown = false;
 bool      			_btPrevDown = false;
 bool      			_isScrolling = false;
 bool 				_cancelScroll = false;
-OneButton 			_btNext(A1, true);
-OneButton 			_btPrev(A2, true);
+OneButton 			_btNext(PIN_BUTTON_NEXT, true);
+OneButton 			_btPrev(PIN_BUTTON_PREV, true);
+OneButton 			_btBypass(PIN_BUTTON_BYPASS, true);
 
 // display stuff
-// Adafruit_SSD1306 	display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, PIN_OLED_RESET);
+IDisplay* display = nullptr;
 
 // device stuff
 int8_t              _currentPatch = 0;
@@ -72,6 +72,7 @@ char                _currentPatchName[11] = {0};
 uint8_t             _patchLen;
 uint8_t             _deviceID;
 bool                _tunerEnabled = false;
+bool                _bypassEnabled = false;
 // id request
 uint8_t 			ID_PAK[] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
 // set editor mode on / off
@@ -84,15 +85,16 @@ uint8_t 			PD_PAK[] = { 0xf0, 0x52, 0x00, 0xff /* device ID */, 0x29, 0xf7 };
 uint8_t 			TU_PAK[] = { 0xb0, 0x4a, 0x00 /* 0x41: on - 0x0: off */ };
 // program change
 uint8_t 			PC_PAK[] = { 0xc0, 0x00 /* program number */ };
+// bypass effect
+uint8_t 			BP_PAK[] = { 0xf0, 0x52, 0x00, 0xff /* device ID */, 0x31, 0x00 /* effect slot number */, 0x00, 0x00 /* 1: on, 0: off */, 0x00, 0x00, 0xf7 };
 
 
 void sendPatch();
-// void initDisplay();
 void initDevice();
-// void updateDisplay();
-// void updateDisplay(const __FlashStringHelper * aMessage, uint16_t aX, uint16_t aY);
 void onNextClicked();
 void onPrevClicked();
+void onBypassClicked();
+void onFullBypassClicked();
 void onNextLongHold();
 void onPrevLongHold();
 void onNextLongStart();
@@ -103,7 +105,6 @@ void enableEditorMode(bool aEnable);
 void requestPatchIndex();
 void requestPatchData();
 
-IDisplay* display = nullptr;
 
 // ----------------------------------------------------------------------------
 // MAIN
@@ -117,10 +118,14 @@ void setup() {
         display = new LCDDisplay();
     #endif
 
+    pinMode(PIN_LED_BYPASS, OUTPUT);
+
+    display->clear();
+    display->showString(F("ZOOM MS REMOTE"), 0, 0);
+    delay(2000);
+
     // peripheral init
-    // initDisplay();
     initDevice();
-    // updateDisplay();
     display->showPatch(_currentPatch, _currentPatchName);
 
     // button init
@@ -139,6 +144,9 @@ void setup() {
     _btPrev.attachLongPressStart(onPrevLongStart);
     _btPrev.attachDuringLongPress(onPrevLongHold);  
     _btPrev.attachLongPressStop(onPrevLongStop);
+
+    _btBypass.attachClick(onBypassClicked);
+    _btBypass.attachLongPressStart(onFullBypassClicked);
 }
 
 
@@ -179,7 +187,6 @@ void incPatch(int8_t aOffset) {
 
     sendPatch();
     requestPatchData();
-    // updateDisplay();
     display->showPatch(_currentPatch, _currentPatchName);
 }
 
@@ -264,6 +271,10 @@ void initDevice() {
     else {
         _patchLen = 105;
     }
+    BP_PAK[3] = _deviceID;
+    EM_PAK[3] = _deviceID;
+    PI_PAK[3] = _deviceID;
+    PD_PAK[3] = _deviceID;
 
     char fw_version[5] = {0};
     fw_version[0] = _readBuffer[10];
@@ -302,16 +313,9 @@ void initDevice() {
     dprint(F("PATCH LEN: "));
     dprintln(_patchLen);
 
-
     display->clear();
     display->showString(device_name, 0, 0);
     display->showString(fw_version, 0, 16);
-    // display.clearDisplay();
-    // display.setCursor(0, 0);
-    // display.println(device_name);
-    // display.setCursor(0, 16);
-    // display.println(fw_version);
-    // display.display();
 
     requestPatchIndex();
     enableEditorMode(true);
@@ -321,14 +325,12 @@ void initDevice() {
 
 
 void enableEditorMode(bool aEnable) {
-	EM_PAK[3] = _deviceID;
 	EM_PAK[4] = aEnable ? 0x50 : 0x51;
     sendBytes(EM_PAK, F("EDITOR ON"));
 }
 
 
 void requestPatchIndex() {
-    PI_PAK[3] = _deviceID;
     sendBytes(PI_PAK, F("REQ PATCH INDEX"));
     readResponse();
     _currentPatch = _readBuffer[7];
@@ -338,7 +340,6 @@ void requestPatchIndex() {
 
 
 void requestPatchData() {
-    PD_PAK[3] = _deviceID;
     sendBytes(PD_PAK, F("REQ PATCH DATA"));
     readResponse();
 
@@ -365,15 +366,34 @@ void toggleTuner() {
     sendBytes(TU_PAK);
 	if(_tunerEnabled) {
         display->showString(F(" TUNER ON "), 0, 0);
-    	// updateDisplay(F(" TUNER ON "), 0, 0);
 	}
     else {
         display->showPatch(_currentPatch, _currentPatchName);
-    	// updateDisplay();
     	// this flag will prevent patch scrolling 
     	// if buttons are released not quite simultaneously
     	_cancelScroll = true;
     }
+}
+
+
+void toggleBypass() {
+	_bypassEnabled = !_bypassEnabled;
+    BP_PAK[5] = 0; // consider the 1st slot to be the line selector
+	BP_PAK[7] = _bypassEnabled ? 0x1 : 0x0;
+    sendBytes(BP_PAK);
+    digitalWrite(PIN_LED_BYPASS, !_bypassEnabled);
+}
+
+
+void toggleFullBypass() {
+	_bypassEnabled = !_bypassEnabled;
+    
+    BP_PAK[7] = _bypassEnabled ? 0x1 : 0x0;
+    for (int i = 0; i < DEV_MAX_FX_PER_PATCH; i++) {
+        BP_PAK[5] = i;
+        sendBytes(BP_PAK);
+    }
+	digitalWrite(PIN_LED_BYPASS, !_bypassEnabled);
 }
 
 
@@ -386,40 +406,6 @@ void sendPatch() {
     PC_PAK[1] = _currentPatch;
     _midi.SendData(PC_PAK);
 }
-
-
-// ----------------------------------------------------------------------------
-// DISPLAY HELPERS
-// ----------------------------------------------------------------------------
-// void initDisplay() {
-//     if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
-//         dprintln(F("SSD1306 allocation failed"));
-//     }
-//     display.setTextSize(2);
-//     display.setTextColor(SSD1306_WHITE);
-// }
-
-
-// void updateDisplay() {
-//     uint8_t p = _currentPatch + 1;
-//     display.clearDisplay();
-//     display.setCursor(0, 0);
-//     display.println(_currentPatchName);
-//     display.setCursor(100, 16);
-//     if (p < 10) {
-//         display.print("0");  
-//     }
-//     display.println(p);
-//     display.display();
-// }
-
-
-// void updateDisplay(const __FlashStringHelper * aMessage, uint16_t aX, uint16_t aY) {
-//     display.clearDisplay();
-//     display.setCursor(aX, aY);
-//     display.println(aMessage);
-//     display.display();
-// }
 
 
 // ----------------------------------------------------------------------------
@@ -505,4 +491,20 @@ void onPrevClicked() {
         incPatch(-1);
     }
     _btPrevDown = false;
+}
+
+
+// ============================================================================
+// Toggle bypass only if: 
+// - tuner is disabled AND
+// - we're not scrolling
+void onBypassClicked() {
+    if(_tunerEnabled == false && !_isScrolling) {
+        toggleBypass();
+    }
+}
+void onFullBypassClicked() {
+    if(_tunerEnabled == false && !_isScrolling) {
+        toggleFullBypass();
+    }
 }
