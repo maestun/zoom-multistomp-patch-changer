@@ -15,6 +15,7 @@
 #include <OneButton.h>
 
 #include "debug.h"
+
 #ifdef USE_OLED
 #  include "display_oled.h"
 #elif defined(USE_LCD)
@@ -40,8 +41,8 @@
 // LCD / OLED SCL -> A5
 #define PIN_BUTTON_NEXT             (A1)
 #define PIN_BUTTON_PREV             (A2)
-#define PIN_BUTTON_BYPASS           (A3)
-// #define PIN_LED_BYPASS              (10)
+#define PIN_BUTTON_BYPASS           (3)
+#define PIN_LED_BYPASS              (10)
 
 // delay (in milliseconds) between two patch increments while scrolling
 #define AUTOCYCLE_DELAY_MS          (250)
@@ -74,7 +75,7 @@ char                _currentPatchName[11] = {0};
 uint8_t             _patchLen;
 uint8_t             _deviceID;
 bool                _tunerEnabled = false;
-bool                _bypassEnabled = false;
+bool                _bypassed = false;
 // id request
 uint8_t 			ID_PAK[] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
 // set editor mode on / off
@@ -82,7 +83,7 @@ uint8_t 			EM_PAK[] = { 0xf0, 0x52, 0x00, 0xff /* device ID */, 0x50 /* 0x50: on
 // get patch index
 uint8_t 			PI_PAK[] = { 0xf0, 0x52, 0x00, 0xff /* device ID */, 0x33, 0xf7 };
 // get patch data
-uint8_t 			PD_PAK[] = { 0xf0, 0x52, 0x00, 0xff /* device ID */, 0x29, 0xf7 };
+uint8_t 			PD_PAK[] = { 0xf0, 0x52, 0x00, 0xff /* device ID */, 0x29, 0xf7};
 // set tuner mode on / off
 uint8_t 			TU_PAK[] = { 0xb0, 0x4a, 0x00 /* 0x41: on - 0x0: off */ };
 // program change
@@ -95,7 +96,7 @@ void sendPatch();
 void initDevice();
 void onNextClicked();
 void onPrevClicked();
-// void onBypassClicked();
+void onBypassClicked();
 // void onFullBypassClicked();
 void onNextLongHold();
 void onPrevLongHold();
@@ -120,17 +121,15 @@ void setup() {
         display = new LCDDisplay();
     #endif
 
-    // pinMode(PIN_LED_BYPASS, OUTPUT);
-    // digitalWrite(PIN_LED_BYPASS, LOW);
+    pinMode(PIN_LED_BYPASS, OUTPUT);
+    digitalWrite(PIN_LED_BYPASS, LOW);
 
     display->clear();
     display->showString(F(" ZOOM MS REMOTE "), 0, 0);
-    dprintln(F("DISP INIT"));
     delay(1000);
 
     // peripheral init
     initDevice();
-    dprintln(F("DISP INIT"));
 
     display->showPatch(_currentPatch, _currentPatchName);
 
@@ -151,25 +150,27 @@ void setup() {
     _btPrev.attachDuringLongPress(onPrevLongHold);  
     _btPrev.attachLongPressStop(onPrevLongStop);
 
-    // _btBypass.attachClick(onBypassClicked);
-    // _btBypass.attachLongPressStart(onFullBypassClicked);
+    _btBypass.attachClick(onBypassClicked);
 }
 
 
 void loop() {
     _btPrev.tick();
     _btNext.tick();
+    _btBypass.tick();
 }
 
-
+  
 // ----------------------------------------------------------------------------
 // DEBUG
 // ----------------------------------------------------------------------------
-void debugReadBuffer(const __FlashStringHelper * aMessage, bool aIsSysEx) {
+int debugReadBuffer(const __FlashStringHelper * aMessage, bool aIsSysEx) {
     dprintln(aMessage);
     int i = 0;
     for(i = 0; i < MIDI_MAX_SYSEX_SIZE; i++) {
-        dprint("0x");         
+        dprint("0x");
+        if (_readBuffer[i] < 16) 
+            dprint("0");
         hprint(_readBuffer[i]);
         dprint(", ");
         if(aIsSysEx && _readBuffer[i] == 0xf7) {
@@ -177,9 +178,11 @@ void debugReadBuffer(const __FlashStringHelper * aMessage, bool aIsSysEx) {
             break;
         }
     }
+
     dprintln("");
     dprint(F("NUM BYTES: "));
     dprintln(i);
+    return i;
 }
 
 
@@ -215,19 +218,18 @@ void readResponse(bool aIsSysEx = true) {
     _usb.Task();
     do {
         rcode = _midi.RecvData(&recv_read, (uint8_t *)(_readBuffer + recv_count));
-		dprintln(F("rcode"));
-        dprintln(rcode);
+		// dprintln(F("rcode"));
+        // dprintln(rcode);
 
         if(rcode == 0) {
             recv_count += recv_read;
-            dprintln(F("recv_read"));
-            dprintln(recv_read);
-            dprintln(F("recv_count"));
-            dprintln(recv_count);
+            // dprintln(F("recv_read"));
+            // dprintln(recv_read);
+            // dprintln(F("recv_count"));
+            // dprintln(recv_count);
         }
     } while(/*recv_count < MIDI_MAX_SYSEX_SIZE &&*/ rcode == 0);
-
-    // debug
+    
     // debugReadBuffer(F("RAW READ: "), true);
 
     // remove MIDI packet's 1st byte
@@ -236,9 +238,9 @@ void readResponse(bool aIsSysEx = true) {
         _readBuffer[j++] = _readBuffer[++i];
         _readBuffer[j++] = _readBuffer[++i];
         _readBuffer[j++] = _readBuffer[++i];
-    }
+    }  
 
-    // debugReadBuffer(F("SYSEX READ: "), true);
+    debugReadBuffer(F("SYSEX READ: "), true);
 }
 
 
@@ -328,8 +330,14 @@ void initDevice() {
     requestPatchIndex();
     enableEditorMode(true);
     requestPatchData();
-    delay(1500);
+    delay(500);
+
+    dprint(F("Active: "));
+    _bypassed = _readBuffer[6] & 0x1;
+    dprintln(_bypassed ? F("YES") : F("NO"));
+    digitalWrite(PIN_LED_BYPASS, _bypassed);
 }
+
 
 
 void enableEditorMode(bool aEnable) {
@@ -384,25 +392,25 @@ void toggleTuner() {
 }
 
 
-// void toggleBypass() {
-// 	_bypassEnabled = !_bypassEnabled;
-//     BP_PAK[5] = 0; // consider the 1st slot to be the line selector
-// 	BP_PAK[7] = _bypassEnabled ? 0x1 : 0x0;
-//     sendBytes(BP_PAK);
-//     digitalWrite(PIN_LED_BYPASS, !_bypassEnabled);
-// }
+void toggleBypass() {
+	_bypassed = !_bypassed;
+    BP_PAK[5] = 0; // consider the 1st slot to be the line selector
+	BP_PAK[7] = _bypassed ? 0x1 : 0x0;
+    sendBytes(BP_PAK);
+    // digitalWrite(PIN_LED_BYPASS, !_bypassed);
+}
 
 
-// void toggleFullBypass() {
-// 	_bypassEnabled = !_bypassEnabled;
+void toggleFullBypass() {
+	_bypassed = !_bypassed;
     
-//     BP_PAK[7] = _bypassEnabled ? 0x1 : 0x0;
-//     for (int i = 0; i < DEV_MAX_FX_PER_PATCH; i++) {
-//         BP_PAK[5] = i;
-//         sendBytes(BP_PAK);
-//     }
-// 	digitalWrite(PIN_LED_BYPASS, !_bypassEnabled);
-// }
+    BP_PAK[7] = _bypassed ? 0x1 : 0x0;
+    for (int i = 0; i < DEV_MAX_FX_PER_PATCH; i++) {
+        BP_PAK[5] = i;
+        sendBytes(BP_PAK);
+    }
+	// digitalWrite(PIN_LED_BYPASS, !_bypassed);
+}
 
 
 void sendPatch() {
@@ -506,12 +514,15 @@ void onPrevClicked() {
 // Toggle bypass only if: 
 // - tuner is disabled AND
 // - we're not scrolling
-// void onBypassClicked() {
-//     if(_tunerEnabled == false && !_isScrolling) {
-//         toggleBypass();
-//     }
-// }
+void onBypassClicked() {
+    dprintln(F("BYPASS"));
+    if(_tunerEnabled == false && !_isScrolling) {
+        toggleBypass();
+        digitalWrite(PIN_LED_BYPASS, _bypassed);
+    }
+}
 // void onFullBypassClicked() {
+//     dprintln(F("BYPASS FULL"));
 //     if(_tunerEnabled == false && !_isScrolling) {
 //         toggleFullBypass();
 //     }
