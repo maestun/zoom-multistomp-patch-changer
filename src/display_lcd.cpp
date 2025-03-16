@@ -16,14 +16,14 @@ void LCDDisplay::clear() {
 void LCDDisplay::showString(const __FlashStringHelper * aMessage, uint16_t aX, uint16_t aY) {
     clear();
     _display.setCursor(aX, aY);
-    _display.println(aMessage);
+    _display.print(aMessage);
     _display.display();
 }
 
 void LCDDisplay::showString(const char * aMessage, uint16_t aX, uint16_t aY) {
     clear();
     _display.setCursor(aX, aY);
-    _display.println(aMessage);
+    _display.print(aMessage);
     _display.display();
 }
 
@@ -31,11 +31,11 @@ void LCDDisplay::showPatch(uint8_t _currentPatch, char* _currentPatchName) {
     uint8_t p = _currentPatch + 1;
     clear();
     _display.setCursor(0, 0);
-    _display.println(_currentPatchName);
+    _display.print(_currentPatchName);
     _display.setCursor(0, 1);
     if (p < 10) {
         _display.print("0");  
     }
-    _display.println(p);
+    _display.print(p);
     _display.display();
 }

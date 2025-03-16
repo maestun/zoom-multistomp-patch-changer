@@ -240,7 +240,7 @@ void readResponse(bool aIsSysEx = true) {
         _readBuffer[j++] = _readBuffer[++i];
     }  
 
-    debugReadBuffer(F("SYSEX READ: "), true);
+    // debugReadBuffer(F("SYSEX READ: "), true);
 }
 
 
