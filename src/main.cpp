@@ -34,7 +34,7 @@
 #define PIN_LED_BYPASS              (10)
 
 // delay (in milliseconds) between two patch increments while scrolling
-#define AUTOCYCLE_DELAY_MS          (250)
+#define AUTOCYCLE_DELAY_MS          (300)
 
 // ----------------------------------------------------------------------------
 // GLOBALS
@@ -42,7 +42,6 @@
 
 // button stuff
 uint32_t  			_cycleTS;
-uint16_t  			_cycleMS = 200;
 bool      			_btNextDown = false;
 bool      			_btPrevDown = false;
 bool      			_isScrolling = false;
@@ -55,15 +54,131 @@ OneButton 			_btBypass(PIN_BUTTON_BYPASS, true);
 IDisplay * display = nullptr;
 ZoomMSDevice * zoom = nullptr;
 
-void onNextClicked();
-void onPrevClicked();
-void onBypassClicked();
-void onNextLongHold();
-void onPrevLongHold();
-void onNextLongStart();
-void onPrevLongStart();
-void onNextLongStop();
-void onPrevLongStop();
+
+// ----------------------------------------------------------------------------
+// UTILS
+// ----------------------------------------------------------------------------
+void refreshUI() {
+    display->showPatch(zoom->patch_index, zoom->patch_name);
+    digitalWrite(PIN_LED_BYPASS, zoom->bypassed);
+}
+  
+void toggleTuner() {
+    zoom->toggleTuner();
+	if(zoom->tuner_enabled) {
+        display->clear();
+        display->showString(F("    TUNER ON    "), 0, 0);
+	}
+    else {
+        // display->showPatch(zoom->patch_index, zoom->patch_name);
+        refreshUI();
+    	// this flag will prevent patch scrolling 
+    	// if buttons are released not quite simultaneously
+    	_cancelScroll = true;
+    }
+}
+
+
+// ----------------------------------------------------------------------------
+// BUTTON CALLBACKS
+// ----------------------------------------------------------------------------
+// Toggle tuner only if:
+// - we're not scrolling through the patches
+// - prev+next buttons are being longpressed
+void onNextLongStart() {
+	_cancelScroll = false;
+    if(_btPrev.isLongPressed() == true && _isScrolling == false) {
+        toggleTuner();
+    }
+}
+void onPrevLongStart() {
+	_cancelScroll = false;
+    if(_btNext.isLongPressed() == true && _isScrolling == false) {
+        toggleTuner();
+    }
+}
+
+// Scroll through patches only if:
+// - tuner is disabled AND
+// - the other button is not currently pressed
+void onNextLongHold() {
+  if(zoom->tuner_enabled == false && 
+  	 _cancelScroll == false &&
+     _btPrevDown == false) {
+
+        _isScrolling = true;
+        uint32_t ts = millis();
+        if((ts - _cycleTS) >= AUTOCYCLE_DELAY_MS) {
+            _cycleTS = ts;
+            zoom->incPatch(1);
+            // display->showPatch(zoom->patch_index, zoom->patch_name);
+            refreshUI();
+        }
+    }
+} 
+void onPrevLongHold() {
+    if(zoom->tuner_enabled == false && 
+       _cancelScroll == false &&
+       _btNextDown == false) {
+
+        _isScrolling = true;
+        uint32_t ts = millis();
+        if((ts - _cycleTS) >= AUTOCYCLE_DELAY_MS) {
+            _cycleTS = ts;
+            zoom->incPatch(-1);
+            // display->showPatch(zoom->patch_index, zoom->patch_name);
+            refreshUI();
+        }
+    }
+}
+
+// Reset button state
+void onNextLongStop() {
+    _btNextDown = false;
+    _isScrolling = false;
+}
+void onPrevLongStop() {
+    _btPrevDown = false;
+    _isScrolling = false;
+}
+
+// Single patch increment only if: 
+// - tuner is disabled AND
+// - we're not scrolling with the other button
+void onNextClicked() {
+    if(zoom->tuner_enabled == false && !_isScrolling) {
+        zoom->incPatch(1);
+        // display->showPatch(zoom->patch_index, zoom->patch_name);
+        refreshUI();
+    }
+    _btNextDown = false;
+}
+void onPrevClicked() {
+    if(zoom->tuner_enabled == false && !_isScrolling) {
+        zoom->incPatch(-1);
+        // display->showPatch(zoom->patch_index, zoom->patch_name);
+        refreshUI();
+    }
+    _btPrevDown = false;
+}
+
+// Toggle bypass only if: 
+// - tuner is disabled AND
+// - we're not scrolling
+void onBypassClicked() {
+    if(zoom->tuner_enabled == false && !_isScrolling) {
+        dprintln(F("BYPASS"));
+        zoom->toggleBypass();
+        digitalWrite(PIN_LED_BYPASS, zoom->bypassed);
+    }
+}
+void onFullBypassClicked() {
+    if(zoom->tuner_enabled == false && !_isScrolling) {
+        dprintln(F("BYPASS FULL"));
+        zoom->toggleFullBypass();
+        digitalWrite(PIN_LED_BYPASS, zoom->bypassed);
+    }
+}
 
 
 // ----------------------------------------------------------------------------
@@ -84,15 +199,14 @@ void setup() {
     display->showRemoteInfo(GIT_TAG, GIT_HASH);
     delay(2000);
 
+    
     // peripheral init
     display->clear();
     display->showString(F("USB INIT..."), 0, 0);
     zoom = new ZoomMSDevice();
     display->showDeviceInfo(zoom->device_name, zoom->fw_version);
     delay(2000);
-
-    display->showPatch(zoom->patch_index, zoom->patch_name);
-
+    
     // button init
     _btNext.attachPressStart([]() {
         _btNextDown = true;
@@ -101,7 +215,7 @@ void setup() {
     _btNext.attachLongPressStart(onNextLongStart);
     _btNext.attachDuringLongPress(onNextLongHold);
     _btNext.attachLongPressStop(onNextLongStop);
-
+    
     _btPrev.attachPressStart([]() {
         _btPrevDown = true;
     });
@@ -109,136 +223,14 @@ void setup() {
     _btPrev.attachLongPressStart(onPrevLongStart);
     _btPrev.attachDuringLongPress(onPrevLongHold);  
     _btPrev.attachLongPressStop(onPrevLongStop);
-
+    
     _btBypass.attachClick(onBypassClicked);
+    
+    refreshUI();
 }
-
 
 void loop() {
     _btPrev.tick();
     _btNext.tick();
     _btBypass.tick();
-}
-
-  
-void toggleTuner() {
-    zoom->toggleTuner();
-	if(zoom->tuner_enabled) {
-        display->clear();
-        display->showString(F("    TUNER ON    "), 0, 0);
-	}
-    else {
-        display->showPatch(zoom->patch_index, zoom->patch_name);
-    	// this flag will prevent patch scrolling 
-    	// if buttons are released not quite simultaneously
-    	_cancelScroll = true;
-    }
-}
-
-
-// ----------------------------------------------------------------------------
-// BUTTON CALLBACKS
-// ----------------------------------------------------------------------------
-
-// ============================================================================
-// Toggle tuner only if:
-// - we're not scrolling through the patches
-// - prev+next buttons are being longpressed
-void onNextLongStart() {
-	_cancelScroll = false;
-    if(_btPrev.isLongPressed() == true && _isScrolling == false) {
-        toggleTuner();
-    }
-}
-void onPrevLongStart() {
-	_cancelScroll = false;
-    if(_btNext.isLongPressed() == true && _isScrolling == false) {
-        toggleTuner();
-    }
-}
-
-
-// ============================================================================
-// Scroll through patches only if:
-// - tuner is disabled AND
-// - the other button is not currently pressed
-void onNextLongHold() {
-  if(zoom->tuner_enabled == false && 
-  	 _cancelScroll == false &&
-     _btPrevDown == false) {
-
-        _isScrolling = true;
-        uint32_t ts = millis();
-        if((ts - _cycleTS) >= _cycleMS) {
-            _cycleTS = ts;
-            zoom->incPatch(1);
-            display->showPatch(zoom->patch_index, zoom->patch_name);
-        }
-    }
-} 
-void onPrevLongHold() {
-    if(zoom->tuner_enabled == false && 
-       _cancelScroll == false &&
-       _btNextDown == false) {
-
-        _isScrolling = true;
-        uint32_t ts = millis();
-        if((ts - _cycleTS) >= _cycleMS) {
-            _cycleTS = ts;
-            zoom->incPatch(-1);
-            display->showPatch(zoom->patch_index, zoom->patch_name);
-        }
-    }
-}
-
-
-// ============================================================================
-// Reset button state
-void onNextLongStop() {
-    _btNextDown = false;
-    _isScrolling = false;
-}
-void onPrevLongStop() {
-    _btPrevDown = false;
-    _isScrolling = false;
-}
-
-
-// ============================================================================
-// Single patch increment only if: 
-// - tuner is disabled AND
-// - we're not scrolling with the other button
-void onNextClicked() {
-    if(zoom->tuner_enabled == false && !_isScrolling) {
-        zoom->incPatch(1);
-        display->showPatch(zoom->patch_index, zoom->patch_name);
-    }
-    _btNextDown = false;
-}
-void onPrevClicked() {
-    if(zoom->tuner_enabled == false && !_isScrolling) {
-        zoom->incPatch(-1);
-        display->showPatch(zoom->patch_index, zoom->patch_name);
-    }
-    _btPrevDown = false;
-}
-
-
-// ============================================================================
-// Toggle bypass only if: 
-// - tuner is disabled AND
-// - we're not scrolling
-void onBypassClicked() {
-    if(zoom->tuner_enabled == false && !_isScrolling) {
-        dprintln(F("BYPASS"));
-        zoom->toggleBypass();
-        digitalWrite(PIN_LED_BYPASS, zoom->bypassed);
-    }
-}
-void onFullBypassClicked() {
-    if(zoom->tuner_enabled == false && !_isScrolling) {
-        dprintln(F("BYPASS FULL"));
-        zoom->toggleFullBypass();
-        digitalWrite(PIN_LED_BYPASS, zoom->bypassed);
-    }
 }

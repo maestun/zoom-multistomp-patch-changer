@@ -33,16 +33,16 @@ uint8_t 			PC_PAK[] = { 0xc0, 0x00 /* program number */ };
 // bypass effect
 uint8_t 			BP_PAK[] = { 0xf0, 0x52, 0x00, 0xff /* device ID */, 0x31, 0x00 /* effect slot number */, 0x00, 0x00 /* 1: on, 0: off */, 0x00, 0x00, 0xf7 };
 
-void ZoomMSDevice::debugReadBuffer(const __FlashStringHelper * aMessage, bool aIsSysEx) {
+void debug(uint8_t * buffer, int len, const __FlashStringHelper * aMessage, bool aIsSysEx) {
     dprintln(aMessage);
     int i = 0;
-    for(i = 0; i < MIDI_MAX_SYSEX_SIZE; i++) {
+    for(i = 0; i < /*MIDI_MAX_SYSEX_SIZE*/len; i++) {
         dprint("0x");
-        if (_readBuffer[i] < 16) 
+        if (buffer[i] < 16) 
             dprint("0");
-        hprint(_readBuffer[i]);
+        hprint(buffer[i]);
         dprint(", ");
-        if(aIsSysEx && _readBuffer[i] == 0xf7) {
+        if(aIsSysEx && buffer[i] == 0xf7) {
             i++;
             break;
         }
@@ -129,15 +129,16 @@ void ZoomMSDevice::requestPatchData() {
 
     dprint(F("Name: "));
     dprintln(patch_name);
+
+    // debug((uint8_t*) patch_name, 11, F("hex name"), false);
+
     dprint(F("Bypassed: "));
     dprintln(bypassed ? F("YES") : F("NO"));
 }
 
 ZoomMSDevice::ZoomMSDevice() {
 
-    uint8_t ret = _usb.Init();
-    dprint(F("USB ret: "));
-    dprintln(ret);
+    _usb.Init();
 
     int state = 0; 
     uint32_t wait_ms = 0;
@@ -208,6 +209,8 @@ ZoomMSDevice::ZoomMSDevice() {
     dprint(F("PATCH LEN: "));
     dprintln(_patchLen);
 
+    // disable tuner
+    sendBytes(TU_PAK);
     requestPatchIndex();
     enableEditorMode(true);
     requestPatchData();

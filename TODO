@@ -2,7 +2,11 @@
 - [X] fix tuner on/off
 - [X] fix bypass polling
 - [X] fix longpress display issue
-- [ ] check usb connection restored after loss
+- [X] fix longpress stability issue
+- [ ] fix usb connection restored after loss
 - [ ] big digits on lcd screen
 - [ ] poll current patch to update display if user tweaks the device
 - [ ] use magic button
+- [ ] test on ms60 / ms50
+- [ ] add 3.3v -> 5.0 tweak on usb host shield, to power device thru usb
+- [ ] update README
