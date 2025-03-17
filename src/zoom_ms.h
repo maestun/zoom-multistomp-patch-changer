@@ -3,21 +3,6 @@
 #include <Usb.h>
 #include <usbh_midi.h>
 
-// Zoom device characteristics, don't change
-#define DEV_MAX_PATCHES             (50)
-#define DEV_ID_MS_50G 				(0x58)
-#define DEV_ID_MS_70CDR 			(0x61)
-#define DEV_ID_MS_60B 				(0x5f)
-#define DEV_PLEN_MS_50G 			(146)
-#define DEV_PLEN_MS_70CDR 			(146)
-#define DEV_PLEN_MS_60B 			(105)
-#define DEV_NAME_MS_50G				F("MS-50G")
-#define DEV_NAME_MS_70CDR			F("MS-70CDR")
-#define DEV_NAME_MS_60G				F("MS-60G")
-#define DEV_NAME_INVALID			F("INVALID")
-#define DEV_MAX_FX_PER_PATCH        (5)
-
-
 class ZoomMSDevice {
 
 private:

@@ -20,7 +20,7 @@
 #ifdef USE_OLED
 #  include "display_oled.h"
 #elif defined(USE_LCD)
-#  include "display_lcd.h"
+#  include "display_lcd16x2.h"
 #endif
 
 #include "zoom_ms.h"
@@ -75,25 +75,22 @@ void setup() {
     #ifdef USE_OLED
         display = new OLEDDisplay();
     #elif defined(USE_LCD)
-        display = new LCDDisplay();
+        display = new LCD16x2Display();
     #endif
 
+    // show remote info
     pinMode(PIN_LED_BYPASS, OUTPUT);
     digitalWrite(PIN_LED_BYPASS, LOW);
-
-    display->clear();
-    display->showString(F(" ZOOM MS REMOTE "), 0, 0);
-    display->showString(GIT_TAG, 0, 1); // oled y=16 / TODO: get_line2() for IDisplay
-    display->showString(GIT_HASH, 7, 1);// oled y=16 / TODO: get_line2() for IDisplay
-    delay(1000);
+    display->showRemoteInfo(GIT_TAG, GIT_HASH);
+    delay(2000);
 
     // peripheral init
-    display->showString(F("    USB INIT    "), 0, 0);
-    zoom = new ZoomMSDevice();   
-    // display->clear();
-    display->showString(zoom->device_name, 0, 1); // oled y=16 / TODO: get_line2() for IDisplay
-    display->showString(zoom->fw_version, 9, 1); // oled y=16 / TODO: get_line2() for IDisplay
-    delay(1000);
+    display->clear();
+    display->showString(F("USB INIT..."), 0, 0);
+    zoom = new ZoomMSDevice();
+    digitalWrite(PIN_LED_BYPASS, zoom->bypassed);
+    display->showDeviceInfo(zoom->device_name, zoom->fw_version);
+    delay(2000);
 
     display->showPatch(zoom->patch_index, zoom->patch_name);
 
@@ -127,7 +124,8 @@ void loop() {
   
 void toggleTuner() {
 	if(zoom->tuner_enabled) {
-        display->showString(F(" TUNER ON "), 0, 0);
+        display->clear();
+        display->showString(F("    TUNER ON    "), 0, 0);
 	}
     else {
         display->showPatch(zoom->patch_index, zoom->patch_name);
@@ -173,8 +171,8 @@ void onNextLongHold() {
         uint32_t ts = millis();
         if((ts - _cycleTS) >= _cycleMS) {
             _cycleTS = ts;
-            // Serial.println("SCROLL NEXT...");
             zoom->incPatch(1);
+            display->showPatch(zoom->patch_index, zoom->patch_name);
         }
     }
 } 
@@ -187,8 +185,8 @@ void onPrevLongHold() {
         uint32_t ts = millis();
         if((ts - _cycleTS) >= _cycleMS) {
             _cycleTS = ts;
-            // Serial.println("SCROLL PREV...");
             zoom->incPatch(-1);
+            display->showPatch(zoom->patch_index, zoom->patch_name);
         }
     }
 }
@@ -233,12 +231,12 @@ void onBypassClicked() {
     if(zoom->tuner_enabled == false && !_isScrolling) {
         zoom->toggleBypass();
         digitalWrite(PIN_LED_BYPASS, !zoom->bypassed);
-        // digitalWrite(PIN_LED_BYPASS, zoom->bypassed);
     }
 }
-// void onFullBypassClicked() {
-//     dprintln(F("BYPASS FULL"));
-//     if(_tunerEnabled == false && !_isScrolling) {
-//         toggleFullBypass();
-//     }
-// }
+void onFullBypassClicked() {
+    dprintln(F("BYPASS FULL"));
+    if(zoom->tuner_enabled == false && !_isScrolling) {
+        zoom->toggleFullBypass();
+        digitalWrite(PIN_LED_BYPASS, !zoom->bypassed);
+    }
+}

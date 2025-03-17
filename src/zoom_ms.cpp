@@ -1,6 +1,20 @@
 #include "zoom_ms.h"
 #include "debug.h"
 
+// Zoom device characteristics, don't change
+#define DEV_MAX_PATCHES             (50)
+#define DEV_ID_MS_50G 				(0x58)
+#define DEV_ID_MS_70CDR 			(0x61)
+#define DEV_ID_MS_60B 				(0x5f)
+#define DEV_PLEN_MS_50G 			(146)
+#define DEV_PLEN_MS_70CDR 			(146)
+#define DEV_PLEN_MS_60B 			(105)
+#define DEV_NAME_MS_50G				F("MS-50G")
+#define DEV_NAME_MS_70CDR			F("MS-70CDR")
+#define DEV_NAME_MS_60G				F("MS-60G")
+#define DEV_NAME_INVALID			F("INVALID")
+#define DEV_MAX_FX_PER_PATCH        (5)
+
 USB         _usb;
 USBH_MIDI   _midi(&_usb);
 
@@ -73,7 +87,7 @@ void ZoomMSDevice::readResponse(bool aIsSysEx) {
         _readBuffer[j++] = _readBuffer[++i];
     }  
 
-    debugReadBuffer(F("SYSEX READ: "), true);
+    // debugReadBuffer(F("SYSEX READ: "), true);
 }
 
 void ZoomMSDevice::sendBytes(uint8_t * aBytes, const __FlashStringHelper * aMessage) {
@@ -195,10 +209,9 @@ ZoomMSDevice::ZoomMSDevice() {
     requestPatchData();
     delay(500);
 
-    dprint(F("Active: "));
     bypassed = _readBuffer[6] & 0x1;
+    dprint(F("Active: "));
     dprintln(bypassed ? F("YES") : F("NO"));
-    // ****************  digitalWrite(PIN_LED_BYPASS, bypassed);
 }
 
 void ZoomMSDevice::sendPatch() {
@@ -218,24 +231,7 @@ void ZoomMSDevice::incPatch(int8_t aOffset) {
 
     sendPatch();
     requestPatchData();
-    // *************** display->showPatch(patch_index, patch_name);
 }
-
-// bool ZoomMSDevice::isbypassed() {
-//     return bypassed;
-// }
-
-// bool ZoomMSDevice::is_tuner_enabled() {
-//     return tuner_enabled;
-// }
-
-// int ZoomMSDevice::patch_index() {
-//     return patch_index;
-// }
-
-// char * ZoomMSDevice::patch_name() {
-//     return patch_name;
-// }
 
 void ZoomMSDevice::toggleFullBypass() {
 	bypassed = !bypassed;
@@ -245,7 +241,6 @@ void ZoomMSDevice::toggleFullBypass() {
         BP_PAK[5] = i;
         sendBytes(BP_PAK);
     }
-	// ********************* digitalWrite(PIN_LED_BYPASS, !bypassed);
 }
 
 void ZoomMSDevice::toggleBypass() {
@@ -253,7 +248,6 @@ void ZoomMSDevice::toggleBypass() {
     BP_PAK[5] = 0; // consider the 1st slot to be the line selector
 	BP_PAK[7] = bypassed ? 0x1 : 0x0;
     sendBytes(BP_PAK);
-    // *********************  digitalWrite(PIN_LED_BYPASS, !bypassed);
 }
 
 
