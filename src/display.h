@@ -10,6 +10,10 @@ public:
     virtual void showString(const __FlashStringHelper* aMessage, uint16_t aX, uint16_t aY) = 0;
     virtual void showString(const char* aMessage, uint16_t aX, uint16_t aY) = 0;
     virtual void showPatch(uint8_t _currentPatch, char* _currentPatchName) = 0;
+
+    virtual void showRemoteInfo() = 0;
+    virtual void showDeviceInfo() = 0;
+
 };
 
 #endif

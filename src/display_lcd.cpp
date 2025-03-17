@@ -14,22 +14,22 @@ void LCDDisplay::clear() {
 }
 
 void LCDDisplay::showString(const __FlashStringHelper * aMessage, uint16_t aX, uint16_t aY) {
-    clear();
+    // clear();
     _display.setCursor(aX, aY);
     _display.print(aMessage);
     _display.display();
 }
 
 void LCDDisplay::showString(const char * aMessage, uint16_t aX, uint16_t aY) {
-    clear();
+    // clear();
     _display.setCursor(aX, aY);
     _display.print(aMessage);
     _display.display();
 }
 
 void LCDDisplay::showPatch(uint8_t _currentPatch, char* _currentPatchName) {
-    uint8_t p = _currentPatch + 1;
     clear();
+    uint8_t p = _currentPatch + 1;
     _display.setCursor(0, 0);
     _display.print(_currentPatchName);
     _display.setCursor(0, 1);
@@ -38,4 +38,11 @@ void LCDDisplay::showPatch(uint8_t _currentPatch, char* _currentPatchName) {
     }
     _display.print(p);
     _display.display();
+}
+
+void LCDDisplay::showRemoteInfo(uint8_t _currentPatch, char* _currentPatchName) {
+    clear();
+    showString(F(" ZOOM MS REMOTE "), 0, 0);
+    showString(GIT_TAG, 0, 1); // oled y=16 / TODO: get_line2() for IDisplay
+    showString(GIT_HASH, 7, 1);// oled y=16 / TODO: get_line2() for IDisplay
 }

@@ -15,6 +15,7 @@
 #include <OneButton.h>
 
 #include "debug.h"
+#include "version.h"
 
 #ifdef USE_OLED
 #  include "display_oled.h"
@@ -22,19 +23,7 @@
 #  include "display_lcd.h"
 #endif
 
-// Zoom device characteristics, don't change
-#define DEV_MAX_PATCHES             (50)
-#define DEV_ID_MS_50G 				(0x58)
-#define DEV_ID_MS_70CDR 			(0x61)
-#define DEV_ID_MS_60B 				(0x5f)
-#define DEV_PLEN_MS_50G 			(146)
-#define DEV_PLEN_MS_70CDR 			(146)
-#define DEV_PLEN_MS_60B 			(105)
-#define DEV_NAME_MS_50G				F("MS-50G")
-#define DEV_NAME_MS_70CDR			F("MS-70CDR")
-#define DEV_NAME_MS_60G				F("MS-60G")
-#define DEV_NAME_INVALID			F("INVALID")
-#define DEV_MAX_FX_PER_PATCH        (5)
+#include "zoom_ms.h"
 
 // footswitch pins for patch next / prev with internal pullup resistors
 // LCD / OLED SDA -> A4
@@ -50,10 +39,6 @@
 // ----------------------------------------------------------------------------
 // GLOBALS
 // ----------------------------------------------------------------------------
-// communication stuff
-USB         		_usb;
-USBH_MIDI   		_midi(&_usb);
-uint8_t 			_readBuffer[MIDI_MAX_SYSEX_SIZE] = {0};
 
 // button stuff
 uint32_t  			_cycleTS;
@@ -67,46 +52,18 @@ OneButton 			_btPrev(PIN_BUTTON_PREV, true);
 OneButton 			_btBypass(PIN_BUTTON_BYPASS, true);
 
 // display stuff
-IDisplay* display = nullptr;
+IDisplay * display = nullptr;
+ZoomMSDevice * zoom = nullptr;
 
-// device stuff
-int8_t              _currentPatch = 0;
-char                _currentPatchName[11] = {0};
-uint8_t             _patchLen;
-uint8_t             _deviceID;
-bool                _tunerEnabled = false;
-bool                _bypassed = false;
-// id request
-uint8_t 			ID_PAK[] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
-// set editor mode on / off
-uint8_t 			EM_PAK[] = { 0xf0, 0x52, 0x00, 0xff /* device ID */, 0x50 /* 0x50: on - 0x51: off */, 0xf7 };
-// get patch index
-uint8_t 			PI_PAK[] = { 0xf0, 0x52, 0x00, 0xff /* device ID */, 0x33, 0xf7 };
-// get patch data
-uint8_t 			PD_PAK[] = { 0xf0, 0x52, 0x00, 0xff /* device ID */, 0x29, 0xf7};
-// set tuner mode on / off
-uint8_t 			TU_PAK[] = { 0xb0, 0x4a, 0x00 /* 0x41: on - 0x0: off */ };
-// program change
-uint8_t 			PC_PAK[] = { 0xc0, 0x00 /* program number */ };
-// bypass effect
-uint8_t 			BP_PAK[] = { 0xf0, 0x52, 0x00, 0xff /* device ID */, 0x31, 0x00 /* effect slot number */, 0x00, 0x00 /* 1: on, 0: off */, 0x00, 0x00, 0xf7 };
-
-
-void sendPatch();
-void initDevice();
 void onNextClicked();
 void onPrevClicked();
 void onBypassClicked();
-// void onFullBypassClicked();
 void onNextLongHold();
 void onPrevLongHold();
 void onNextLongStart();
 void onPrevLongStart();
 void onNextLongStop();
 void onPrevLongStop();
-void enableEditorMode(bool aEnable);
-void requestPatchIndex();
-void requestPatchData();
 
 
 // ----------------------------------------------------------------------------
@@ -126,12 +83,19 @@ void setup() {
 
     display->clear();
     display->showString(F(" ZOOM MS REMOTE "), 0, 0);
+    display->showString(GIT_TAG, 0, 1); // oled y=16 / TODO: get_line2() for IDisplay
+    display->showString(GIT_HASH, 7, 1);// oled y=16 / TODO: get_line2() for IDisplay
     delay(1000);
 
     // peripheral init
-    initDevice();
+    display->showString(F("    USB INIT    "), 0, 0);
+    zoom = new ZoomMSDevice();   
+    // display->clear();
+    display->showString(zoom->device_name, 0, 1); // oled y=16 / TODO: get_line2() for IDisplay
+    display->showString(zoom->fw_version, 9, 1); // oled y=16 / TODO: get_line2() for IDisplay
+    delay(1000);
 
-    display->showPatch(_currentPatch, _currentPatchName);
+    display->showPatch(zoom->patch_index, zoom->patch_name);
 
     // button init
     _btNext.attachPressStart([]() {
@@ -161,266 +125,16 @@ void loop() {
 }
 
   
-// ----------------------------------------------------------------------------
-// DEBUG
-// ----------------------------------------------------------------------------
-int debugReadBuffer(const __FlashStringHelper * aMessage, bool aIsSysEx) {
-    dprintln(aMessage);
-    int i = 0;
-    for(i = 0; i < MIDI_MAX_SYSEX_SIZE; i++) {
-        dprint("0x");
-        if (_readBuffer[i] < 16) 
-            dprint("0");
-        hprint(_readBuffer[i]);
-        dprint(", ");
-        if(aIsSysEx && _readBuffer[i] == 0xf7) {
-            i++;
-            break;
-        }
-    }
-
-    dprintln("");
-    dprint(F("NUM BYTES: "));
-    dprintln(i);
-    return i;
-}
-
-
-// ----------------------------------------------------------------------------
-// ZOOM DEVICE HELPERS
-// ----------------------------------------------------------------------------
-void incPatch(int8_t aOffset) {
-    _currentPatch = _currentPatch + aOffset;
-    _currentPatch = _currentPatch > (DEV_MAX_PATCHES - 1) ? 0 : _currentPatch;
-    _currentPatch = _currentPatch < 0 ? (DEV_MAX_PATCHES -1) : _currentPatch;
-
-    sendPatch();
-    requestPatchData();
-    display->showPatch(_currentPatch, _currentPatchName);
-}
-
-
-void sendBytes(uint8_t * aBytes, const __FlashStringHelper * aMessage = NULL) {
-    dprintln(aMessage);
-    _usb.Task();
-    _midi.SendData(aBytes);
-}
-
-
-void readResponse(bool aIsSysEx = true) {
-    uint16_t recv_read = 0;
-    uint16_t recv_count = 0;
-    uint8_t rcode = 0;
-
-    delay(200); // TODO: fine-tune this
-    dprintln(F("readResponse"));
-            
-    _usb.Task();
-    do {
-        rcode = _midi.RecvData(&recv_read, (uint8_t *)(_readBuffer + recv_count));
-		// dprintln(F("rcode"));
-        // dprintln(rcode);
-
-        if(rcode == 0) {
-            recv_count += recv_read;
-            // dprintln(F("recv_read"));
-            // dprintln(recv_read);
-            // dprintln(F("recv_count"));
-            // dprintln(recv_count);
-        }
-    } while(/*recv_count < MIDI_MAX_SYSEX_SIZE &&*/ rcode == 0);
-    
-    // debugReadBuffer(F("RAW READ: "), true);
-
-    // remove MIDI packet's 1st byte
-    for(int i = 0, j = 0; i < MIDI_MAX_SYSEX_SIZE; i++) {
-        // TODO: stop at 0xf7 when sysex
-        _readBuffer[j++] = _readBuffer[++i];
-        _readBuffer[j++] = _readBuffer[++i];
-        _readBuffer[j++] = _readBuffer[++i];
-    }  
-
-    // debugReadBuffer(F("SYSEX READ: "), true);
-}
-
-
-// ----------------------------------------------------------------------------
-// ZOOM DEVICE I/O
-// ----------------------------------------------------------------------------
-void initDevice() {
-    uint8_t ret = _usb.Init();
-    dprint(F("USB ret: "));
-    dprintln(ret);
-
-    display->showString(F("    USB INIT    "), 0, 0);
-        
-    int state = 0; 
-    uint32_t wait_ms = 0;
-    int inc_ms = 100;
-    do {
-        _usb.Task();
-        state = _usb.getUsbTaskState();
-        dprint(F("USB STATE: "));
-        dprintln(state);
-        delay(inc_ms);
-        wait_ms += inc_ms;
-    } while(state != USB_STATE_RUNNING);
-
-    dprint(F("USB RUNNING "));
-    dprint(F(" - Exit loop wait time ms: "));
-    dprintln(wait_ms);
-    
-    // identify
-    sendBytes(ID_PAK, F("REQ ID"));
-    readResponse();
-
-    _deviceID = _readBuffer[6];
-    if(_deviceID == DEV_ID_MS_50G || _deviceID ==DEV_ID_MS_70CDR) {
-        _patchLen = 146;
-    }
-    else {
-        _patchLen = 105;
-    }
-    BP_PAK[3] = _deviceID;
-    EM_PAK[3] = _deviceID;
-    PI_PAK[3] = _deviceID;
-    PD_PAK[3] = _deviceID;
-
-    char fw_version[5] = {0};
-    fw_version[0] = _readBuffer[10];
-    fw_version[1] = _readBuffer[11];
-    fw_version[2] = _readBuffer[12];
-    fw_version[3] = _readBuffer[13];
-
-    dprint(F("DEVICE ID: 0x"));
-    hprintln(_deviceID);
-
-    _patchLen = 0;
-    const __FlashStringHelper * device_name = DEV_NAME_INVALID;
-    switch(_deviceID) {
-	case DEV_ID_MS_50G:
-		_patchLen = DEV_PLEN_MS_50G;
-		device_name = DEV_NAME_MS_50G;
-		break;
-	case DEV_ID_MS_70CDR:
-		_patchLen = DEV_PLEN_MS_70CDR;
-		device_name = DEV_NAME_MS_70CDR;
-		break;
-	case DEV_ID_MS_60B:
-		_patchLen = DEV_PLEN_MS_60B;
-		device_name = DEV_NAME_MS_60G;
-		break;
-	default:
-		break;
-    }
-
-    dprint(F("DEVICE NAME: "));
-    dprintln(device_name);
-
-    dprint(F("DEVICE FW: "));
-    dprintln(fw_version);
-
-    dprint(F("PATCH LEN: "));
-    dprintln(_patchLen);
-
-    display->clear();
-    display->showString(device_name, 0, 0);
-    display->showString(fw_version, 0, 16);
-
-    requestPatchIndex();
-    enableEditorMode(true);
-    requestPatchData();
-    delay(500);
-
-    dprint(F("Active: "));
-    _bypassed = _readBuffer[6] & 0x1;
-    dprintln(_bypassed ? F("YES") : F("NO"));
-    digitalWrite(PIN_LED_BYPASS, _bypassed);
-}
-
-
-
-void enableEditorMode(bool aEnable) {
-	EM_PAK[4] = aEnable ? 0x50 : 0x51;
-    sendBytes(EM_PAK, F("EDITOR ON"));
-}
-
-
-void requestPatchIndex() {
-    sendBytes(PI_PAK, F("REQ PATCH INDEX"));
-    readResponse();
-    _currentPatch = _readBuffer[7];
-    dprint(F("Current patch: "));
-    dprintln(_currentPatch);
-}
-
-
-void requestPatchData() {
-    sendBytes(PD_PAK, F("REQ PATCH DATA"));
-    readResponse();
-
-    _currentPatchName[0] = _readBuffer[_patchLen - 14];
-    _currentPatchName[1] = _readBuffer[_patchLen - 12];
-    _currentPatchName[2] = _readBuffer[_patchLen - 11];
-    _currentPatchName[3] = _readBuffer[_patchLen - 10];
-    _currentPatchName[4] = _readBuffer[_patchLen - 9];
-    _currentPatchName[5] = _readBuffer[_patchLen - 8];
-    _currentPatchName[6] = _readBuffer[_patchLen - 7];
-    _currentPatchName[7] = _readBuffer[_patchLen - 6];
-    _currentPatchName[8] = _readBuffer[_patchLen - 4];
-    _currentPatchName[9] = _readBuffer[_patchLen - 3];
-    _currentPatchName[10] = '\0';
-
-    dprint(F("Name: "));
-    dprintln(_currentPatchName);
-}
-
-
 void toggleTuner() {
-	_tunerEnabled = !_tunerEnabled;
-	TU_PAK[2] = _tunerEnabled ? 0x41 : 0x0;
-    sendBytes(TU_PAK);
-	if(_tunerEnabled) {
+	if(zoom->tuner_enabled) {
         display->showString(F(" TUNER ON "), 0, 0);
 	}
     else {
-        display->showPatch(_currentPatch, _currentPatchName);
+        display->showPatch(zoom->patch_index, zoom->patch_name);
     	// this flag will prevent patch scrolling 
     	// if buttons are released not quite simultaneously
     	_cancelScroll = true;
     }
-}
-
-
-void toggleBypass() {
-	_bypassed = !_bypassed;
-    BP_PAK[5] = 0; // consider the 1st slot to be the line selector
-	BP_PAK[7] = _bypassed ? 0x1 : 0x0;
-    sendBytes(BP_PAK);
-    // digitalWrite(PIN_LED_BYPASS, !_bypassed);
-}
-
-
-void toggleFullBypass() {
-	_bypassed = !_bypassed;
-    
-    BP_PAK[7] = _bypassed ? 0x1 : 0x0;
-    for (int i = 0; i < DEV_MAX_FX_PER_PATCH; i++) {
-        BP_PAK[5] = i;
-        sendBytes(BP_PAK);
-    }
-	// digitalWrite(PIN_LED_BYPASS, !_bypassed);
-}
-
-
-void sendPatch() {
-    // send current patch number MIDI over USB
-    dprint(F("Sending patch: "));
-    dprintln(_currentPatch);
-
-    _usb.Task();
-    PC_PAK[1] = _currentPatch;
-    _midi.SendData(PC_PAK);
 }
 
 
@@ -451,7 +165,7 @@ void onPrevLongStart() {
 // - tuner is disabled AND
 // - the other button is not currently pressed
 void onNextLongHold() {
-  if(_tunerEnabled == false && 
+  if(zoom->tuner_enabled == false && 
   	 _cancelScroll == false &&
      _btPrevDown == false) {
 
@@ -460,12 +174,12 @@ void onNextLongHold() {
         if((ts - _cycleTS) >= _cycleMS) {
             _cycleTS = ts;
             // Serial.println("SCROLL NEXT...");
-            incPatch(1);
+            zoom->incPatch(1);
         }
     }
 } 
 void onPrevLongHold() {
-    if(_tunerEnabled == false && 
+    if(zoom->tuner_enabled == false && 
        _cancelScroll == false &&
        _btNextDown == false) {
 
@@ -474,7 +188,7 @@ void onPrevLongHold() {
         if((ts - _cycleTS) >= _cycleMS) {
             _cycleTS = ts;
             // Serial.println("SCROLL PREV...");
-            incPatch(-1);
+            zoom->incPatch(-1);
         }
     }
 }
@@ -497,14 +211,14 @@ void onPrevLongStop() {
 // - tuner is disabled AND
 // - we're not scrolling with the other button
 void onNextClicked() {
-    if(_tunerEnabled == false && !_isScrolling) {
-        incPatch(1);
+    if(zoom->tuner_enabled == false && !_isScrolling) {
+        zoom->incPatch(1);
     }
     _btNextDown = false;
 }
 void onPrevClicked() {
-    if(_tunerEnabled == false && !_isScrolling) {
-        incPatch(-1);
+    if(zoom->tuner_enabled == false && !_isScrolling) {
+        zoom->incPatch(-1);
     }
     _btPrevDown = false;
 }
@@ -516,9 +230,10 @@ void onPrevClicked() {
 // - we're not scrolling
 void onBypassClicked() {
     dprintln(F("BYPASS"));
-    if(_tunerEnabled == false && !_isScrolling) {
-        toggleBypass();
-        digitalWrite(PIN_LED_BYPASS, _bypassed);
+    if(zoom->tuner_enabled == false && !_isScrolling) {
+        zoom->toggleBypass();
+        digitalWrite(PIN_LED_BYPASS, !zoom->bypassed);
+        // digitalWrite(PIN_LED_BYPASS, zoom->bypassed);
     }
 }
 // void onFullBypassClicked() {
