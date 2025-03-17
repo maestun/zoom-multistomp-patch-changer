@@ -125,8 +125,12 @@ void ZoomMSDevice::requestPatchData() {
     patch_name[9] = _readBuffer[_patchLen - 3];
     patch_name[10] = '\0';
 
+    bypassed = _readBuffer[6] & 0x1;
+
     dprint(F("Name: "));
     dprintln(patch_name);
+    dprint(F("Bypassed: "));
+    dprintln(bypassed ? F("YES") : F("NO"));
 }
 
 ZoomMSDevice::ZoomMSDevice() {
@@ -208,10 +212,6 @@ ZoomMSDevice::ZoomMSDevice() {
     enableEditorMode(true);
     requestPatchData();
     delay(500);
-
-    bypassed = _readBuffer[6] & 0x1;
-    dprint(F("Active: "));
-    dprintln(bypassed ? F("YES") : F("NO"));
 }
 
 void ZoomMSDevice::sendPatch() {
@@ -235,7 +235,6 @@ void ZoomMSDevice::incPatch(int8_t aOffset) {
 
 void ZoomMSDevice::toggleFullBypass() {
 	bypassed = !bypassed;
-    
     BP_PAK[7] = bypassed ? 0x1 : 0x0;
     for (int i = 0; i < DEV_MAX_FX_PER_PATCH; i++) {
         BP_PAK[5] = i;
@@ -249,7 +248,6 @@ void ZoomMSDevice::toggleBypass() {
 	BP_PAK[7] = bypassed ? 0x1 : 0x0;
     sendBytes(BP_PAK);
 }
-
 
 void ZoomMSDevice::toggleTuner() {
 	tuner_enabled = !tuner_enabled;

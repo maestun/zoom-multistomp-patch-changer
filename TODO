@@ -1,3 +1,8 @@
-- separate zoom ms class
-- big digits on lcd screen
-- use magic button
+- [X] fix next/prev patch display issue
+- [X] fix tuner on/off
+- [X] fix bypass polling
+- [X] fix longpress display issue
+- [ ] check usb connection restored after loss
+- [ ] big digits on lcd screen
+- [ ] poll current patch to update display if user tweaks the device
+- [ ] use magic button

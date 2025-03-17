@@ -88,7 +88,6 @@ void setup() {
     display->clear();
     display->showString(F("USB INIT..."), 0, 0);
     zoom = new ZoomMSDevice();
-    digitalWrite(PIN_LED_BYPASS, zoom->bypassed);
     display->showDeviceInfo(zoom->device_name, zoom->fw_version);
     delay(2000);
 
@@ -123,6 +122,7 @@ void loop() {
 
   
 void toggleTuner() {
+    zoom->toggleTuner();
 	if(zoom->tuner_enabled) {
         display->clear();
         display->showString(F("    TUNER ON    "), 0, 0);
@@ -143,7 +143,7 @@ void toggleTuner() {
 // ============================================================================
 // Toggle tuner only if:
 // - we're not scrolling through the patches
-// - both buttons are being longpressed
+// - prev+next buttons are being longpressed
 void onNextLongStart() {
 	_cancelScroll = false;
     if(_btPrev.isLongPressed() == true && _isScrolling == false) {
@@ -211,12 +211,14 @@ void onPrevLongStop() {
 void onNextClicked() {
     if(zoom->tuner_enabled == false && !_isScrolling) {
         zoom->incPatch(1);
+        display->showPatch(zoom->patch_index, zoom->patch_name);
     }
     _btNextDown = false;
 }
 void onPrevClicked() {
     if(zoom->tuner_enabled == false && !_isScrolling) {
         zoom->incPatch(-1);
+        display->showPatch(zoom->patch_index, zoom->patch_name);
     }
     _btPrevDown = false;
 }
@@ -227,16 +229,16 @@ void onPrevClicked() {
 // - tuner is disabled AND
 // - we're not scrolling
 void onBypassClicked() {
-    dprintln(F("BYPASS"));
     if(zoom->tuner_enabled == false && !_isScrolling) {
+        dprintln(F("BYPASS"));
         zoom->toggleBypass();
-        digitalWrite(PIN_LED_BYPASS, !zoom->bypassed);
+        digitalWrite(PIN_LED_BYPASS, zoom->bypassed);
     }
 }
 void onFullBypassClicked() {
-    dprintln(F("BYPASS FULL"));
     if(zoom->tuner_enabled == false && !_isScrolling) {
+        dprintln(F("BYPASS FULL"));
         zoom->toggleFullBypass();
-        digitalWrite(PIN_LED_BYPASS, !zoom->bypassed);
+        digitalWrite(PIN_LED_BYPASS, zoom->bypassed);
     }
 }
