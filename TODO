@@ -4,7 +4,7 @@
 - [X] fix longpress display issue
 - [X] fix longpress stability issue
 - [ ] fix usb connection restored after loss
-- [ ] big digits on lcd screen
+- [X] big digits on lcd screen
 - [ ] poll current patch to update display if user tweaks the device
 - [ ] use magic button
 - [ ] test on ms60 / ms50

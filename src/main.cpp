@@ -34,7 +34,7 @@
 #define PIN_LED_BYPASS              (10)
 
 // delay (in milliseconds) between two patch increments while scrolling
-#define AUTOCYCLE_DELAY_MS          (300)
+#define AUTOCYCLE_DELAY_MS          (100)
 
 // ----------------------------------------------------------------------------
 // GLOBALS
