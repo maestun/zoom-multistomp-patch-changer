@@ -53,32 +53,28 @@ void debug(uint8_t * buffer, int len, const __FlashStringHelper * aMessage, bool
     dprintln(i);
 }
 
+void ZoomMSDevice::sendBytes(uint8_t * aBytes, const __FlashStringHelper * aMessage) {
+    dprintln(aMessage);
+    _usb.Task();
+    _midi.SendData(aBytes);
+}
 
 void ZoomMSDevice::readResponse(bool aIsSysEx) {
     uint16_t recv_read = 0;
     uint16_t recv_count = 0;
     uint8_t rcode = 0;
 
-    delay(200); // TODO: fine-tune this
+    delay(300); // TODO: fine-tune this
     dprintln(F("readResponse"));
             
     _usb.Task();
     do {
         rcode = _midi.RecvData(&recv_read, (uint8_t *)(_readBuffer + recv_count));
-		// dprintln(F("rcode"));
-        // dprintln(rcode);
-
         if(rcode == 0) {
             recv_count += recv_read;
-            // dprintln(F("recv_read"));
-            // dprintln(recv_read);
-            // dprintln(F("recv_count"));
-            // dprintln(recv_count);
         }
     } while(/*recv_count < MIDI_MAX_SYSEX_SIZE &&*/ rcode == 0);
     
-    // debugReadBuffer(F("RAW READ: "), true);
-
     // remove MIDI packet's 1st byte
     for(int i = 0, j = 0; i < MIDI_MAX_SYSEX_SIZE; i++) {
         // TODO: stop at 0xf7 when sysex
@@ -88,12 +84,6 @@ void ZoomMSDevice::readResponse(bool aIsSysEx) {
     }  
 
     // debugReadBuffer(F("SYSEX READ: "), true);
-}
-
-void ZoomMSDevice::sendBytes(uint8_t * aBytes, const __FlashStringHelper * aMessage) {
-    dprintln(aMessage);
-    _usb.Task();
-    _midi.SendData(aBytes);
 }
 
 void ZoomMSDevice::enableEditorMode(bool aEnable) {
@@ -110,7 +100,7 @@ void ZoomMSDevice::requestPatchIndex() {
 }
 
 void ZoomMSDevice::requestPatchData() {
-    sendBytes(PD_PAK, F("REQ PATCH DATA"));
+    sendBytes(PD_PAK, F("REQ DATA"));
     readResponse();
 
     patch_name[0] = _readBuffer[_patchLen - 14];
@@ -126,14 +116,8 @@ void ZoomMSDevice::requestPatchData() {
     patch_name[10] = '\0';
 
     bypassed = _readBuffer[6] & 0x1;
-
-    dprint(F("Name: "));
     dprintln(patch_name);
-
-    // debug((uint8_t*) patch_name, 11, F("hex name"), false);
-
-    dprint(F("Bypassed: "));
-    dprintln(bypassed ? F("YES") : F("NO"));
+    debug((uint8_t*) patch_name, 11, F("hex name"), false);
 }
 
 ZoomMSDevice::ZoomMSDevice() {
@@ -232,7 +216,7 @@ void ZoomMSDevice::incPatch(int8_t aOffset) {
     patch_index = patch_index > (DEV_MAX_PATCHES - 1) ? 0 : patch_index;
     patch_index = patch_index < 0 ? (DEV_MAX_PATCHES -1) : patch_index;
 
-    sendPatch();
+    sendPatch();    
     requestPatchData();
 }
 
