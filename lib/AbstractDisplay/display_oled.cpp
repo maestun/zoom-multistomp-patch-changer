@@ -1,3 +1,5 @@
+#ifdef USE_12832_OLED
+
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
@@ -51,3 +53,5 @@ void OLEDDisplay::showPatch(uint8_t _currentPatch, char* _currentPatchName) {
     _display.println(p);
     _display.display();
 }
+
+#endif

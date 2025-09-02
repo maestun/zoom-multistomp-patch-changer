@@ -1,5 +1,4 @@
-#ifndef IDISPLAY_H
-#define IDISPLAY_H
+#pragma once
 
 #include <Arduino.h>
 
@@ -15,4 +14,5 @@ public:
     virtual void showDeviceInfo(const __FlashStringHelper * name, const char * fw_version) = 0;
 };
 
-#endif
+
+IDisplay* display_instance();

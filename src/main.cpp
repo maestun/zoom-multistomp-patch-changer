@@ -1,236 +1,115 @@
-// ----------------------------------------------------------------------------
-// Zoom MultiStomp patch selector
-// 
-// Increment / decrement patch numbers (up to 50) using your feet.
-// A longpress will trigger the cycling through the patches.
-// A longpress on both buttons will enable / disable the tuner.
-//
-// Libraries used:
-// - USB Host Shield Library v2.0 ( https://github.com/felis/USB_Host_Shield_2.0 )
-// - OneButton ( https://github.com/mathertel/OneButton )
-// ----------------------------------------------------------------------------
-
-#include <Usb.h>
-#include <usbh_midi.h>
-#include <OneButton.h>
-
+#include <Arduino.h>
+#include "zoom_ms.h"
 #include "debug.h"
 #include "version.h"
+#include "display.h"
 
-#ifdef USE_OLED
-#  include "display_oled.h"
-#elif defined(USE_LCD)
-#  include "display_lcd16x2.h"
-#endif
+#define PIN_BUTTON_NEXT (A1)
+#define PIN_BUTTON_PREV (A2)
 
-#include "zoom_ms.h"
+ZoomMS      _zoom;
+IDisplay *  _disp = nullptr;
 
-// footswitch pins for patch next / prev with internal pullup resistors
-// LCD / OLED SDA -> A4
-// LCD / OLED SCL -> A5
-#define PIN_BUTTON_NEXT             (A1)
-#define PIN_BUTTON_PREV             (A2)
-#define PIN_BUTTON_BYPASS           (3)
-#define PIN_LED_BYPASS              (10)
+typedef void (*button_cb_t)(uint8_t);
+class Button {
+private:
+    uint8_t _pin;
+    uint16_t _debounce;
+    button_cb_t _callback;
+    bool _locked;
+public:
+    Button(uint8_t pin, uint16_t debounce, button_cb_t callback) : 
+        _pin(pin), 
+        _debounce(debounce), 
+        _callback(callback), 
+        _locked(false) {
 
-// delay (in milliseconds) between two patch increments while scrolling
-#define AUTOCYCLE_DELAY_MS          (100)
+        pinMode(pin, INPUT_PULLUP);
+    }
 
-// ----------------------------------------------------------------------------
-// GLOBALS
-// ----------------------------------------------------------------------------
-
-// button stuff
-uint32_t  			_cycleTS;
-bool      			_btNextDown = false;
-bool      			_btPrevDown = false;
-bool      			_isScrolling = false;
-bool 				_cancelScroll = false;
-OneButton 			_btNext(PIN_BUTTON_NEXT, true);
-OneButton 			_btPrev(PIN_BUTTON_PREV, true);
-OneButton 			_btBypass(PIN_BUTTON_BYPASS, true);
-
-// display stuff
-IDisplay * display = nullptr;
-ZoomMSDevice * zoom = nullptr;
+    void tick() {
+        if (digitalRead(_pin)) {
+            if (_locked == false) {
+                _locked = true;
+                _callback(_pin);
+                delay(_debounce);
+            }
+        }
+        else {
+            _locked = false;
+        }
+    }
+};
 
 
-// ----------------------------------------------------------------------------
-// UTILS
-// ----------------------------------------------------------------------------
 void refreshUI() {
-    display->showPatch(zoom->patch_index, zoom->patch_name);
-    digitalWrite(PIN_LED_BYPASS, zoom->bypassed);
-}
-  
-void toggleTuner() {
-    zoom->toggleTuner();
-	if(zoom->tuner_enabled) {
-        display->clear();
-        display->showString(F("    TUNER ON    "), 0, 0);
-	}
-    else {
-        // display->showPatch(zoom->patch_index, zoom->patch_name);
-        refreshUI();
-    	// this flag will prevent patch scrolling 
-    	// if buttons are released not quite simultaneously
-    	_cancelScroll = true;
-    }
+    uint8_t index = _zoom.request_patch_index();
+    char * name = _zoom.get_preloaded_name(index);
+    _disp->showPatch(index, name);
 }
 
 
-// ----------------------------------------------------------------------------
-// BUTTON CALLBACKS
-// ----------------------------------------------------------------------------
-// Toggle tuner only if:
-// - we're not scrolling through the patches
-// - prev+next buttons are being longpressed
-void onNextLongStart() {
-	_cancelScroll = false;
-    if(_btPrev.isLongPressed() == true && _isScrolling == false) {
-        toggleTuner();
-    }
-}
-void onPrevLongStart() {
-	_cancelScroll = false;
-    if(_btNext.isLongPressed() == true && _isScrolling == false) {
-        toggleTuner();
-    }
-}
-
-// Scroll through patches only if:
-// - tuner is disabled AND
-// - the other button is not currently pressed
-void onNextLongHold() {
-  if(zoom->tuner_enabled == false && 
-  	 _cancelScroll == false &&
-     _btPrevDown == false) {
-
-        _isScrolling = true;
-        uint32_t ts = millis();
-        if((ts - _cycleTS) >= AUTOCYCLE_DELAY_MS) {
-            _cycleTS = ts;
-            zoom->incPatch(1);
-            // display->showPatch(zoom->patch_index, zoom->patch_name);
-            refreshUI();
-        }
-    }
-} 
-void onPrevLongHold() {
-    if(zoom->tuner_enabled == false && 
-       _cancelScroll == false &&
-       _btNextDown == false) {
-
-        _isScrolling = true;
-        uint32_t ts = millis();
-        if((ts - _cycleTS) >= AUTOCYCLE_DELAY_MS) {
-            _cycleTS = ts;
-            zoom->incPatch(-1);
-            // display->showPatch(zoom->patch_index, zoom->patch_name);
-            refreshUI();
-        }
-    }
-}
-
-// Reset button state
-void onNextLongStop() {
-    _btNextDown = false;
-    _isScrolling = false;
-}
-void onPrevLongStop() {
-    _btPrevDown = false;
-    _isScrolling = false;
-}
-
-// Single patch increment only if: 
-// - tuner is disabled AND
-// - we're not scrolling with the other button
-void onNextClicked() {
-    if(zoom->tuner_enabled == false && !_isScrolling) {
-        zoom->incPatch(1);
-        // display->showPatch(zoom->patch_index, zoom->patch_name);
-        refreshUI();
-    }
-    _btNextDown = false;
-}
-void onPrevClicked() {
-    if(zoom->tuner_enabled == false && !_isScrolling) {
-        zoom->incPatch(-1);
-        // display->showPatch(zoom->patch_index, zoom->patch_name);
-        refreshUI();
-    }
-    _btPrevDown = false;
-}
-
-// Toggle bypass only if: 
-// - tuner is disabled AND
-// - we're not scrolling
-void onBypassClicked() {
-    if(zoom->tuner_enabled == false && !_isScrolling) {
-        dprintln(F("BYPASS"));
-        zoom->toggleBypass();
-        digitalWrite(PIN_LED_BYPASS, zoom->bypassed);
-    }
-}
-void onFullBypassClicked() {
-    if(zoom->tuner_enabled == false && !_isScrolling) {
-        dprintln(F("BYPASS FULL"));
-        zoom->toggleFullBypass();
-        digitalWrite(PIN_LED_BYPASS, zoom->bypassed);
-    }
+void on_patch_name_preloaded(uint8_t index, char* name) {
+    dprint(index + 1);
+    dprint(F("/50 - "));
+    dprintln(name);
+    
+    char str[6] = "";
+    sprintf(str, "%d %%", (int)((int)index * 100) / (ZOOM_MS_MAX_PATCHES - 1));
+    _disp->showString(str, 0, 1);
 }
 
 
-// ----------------------------------------------------------------------------
-// MAIN
-// ----------------------------------------------------------------------------
+void on_next(uint8_t dummy) {   
+    uint8_t index = _zoom.next_patch();
+    _disp->showPatch(index, _zoom.get_preloaded_name(index));
+    dprintln(F("next"));
+}
+
+
+void on_prev(uint8_t dummy) {
+    uint8_t index = _zoom.prev_patch();
+    _disp->showPatch(index, _zoom.get_preloaded_name(index));
+    dprintln(F("prev"));
+}
+
+Button _next(PIN_BUTTON_NEXT, 50, &on_next);
+Button _prev(PIN_BUTTON_PREV, 50, &on_prev);
+
 void setup() {
     dprintinit(9600);
 
-    #ifdef USE_OLED
-        display = new OLEDDisplay();
-    #elif defined(USE_LCD)
-        display = new LCD16x2Display();
-    #endif
+    _disp = display_instance();
+    _disp->showRemoteInfo(GIT_TAG, GIT_HASH);
+    delay(1000);
 
-    // show remote info
-    pinMode(PIN_LED_BYPASS, OUTPUT);
-    digitalWrite(PIN_LED_BYPASS, LOW);
-    display->showRemoteInfo(GIT_TAG, GIT_HASH);
-    delay(2000);
+    _zoom.connect();
+    _disp->clear();
+    _disp->showString(_zoom.device_name, 0, 0);
+    _disp->showString(_zoom.fw_version, 0, 1);
+    delay(1000);
+    
+    _disp->clear();
+    _disp->showString(F("Preloading..."), 0, 0);
+    _zoom.preload_patch_names(&on_patch_name_preloaded);
 
-    
-    // peripheral init
-    display->clear();
-    display->showString(F("USB INIT..."), 0, 0);
-    zoom = new ZoomMSDevice();
-    display->showDeviceInfo(zoom->device_name, zoom->fw_version);
-    delay(2000);
-    
-    // button init
-    _btNext.attachPressStart([]() {
-        _btNextDown = true;
-    });
-    _btNext.attachClick(onNextClicked);
-    _btNext.attachLongPressStart(onNextLongStart);
-    _btNext.attachDuringLongPress(onNextLongHold);
-    _btNext.attachLongPressStop(onNextLongStop);
-    
-    _btPrev.attachPressStart([]() {
-        _btPrevDown = true;
-    });
-    _btPrev.attachClick(onPrevClicked);
-    _btPrev.attachLongPressStart(onPrevLongStart);
-    _btPrev.attachDuringLongPress(onPrevLongHold);  
-    _btPrev.attachLongPressStop(onPrevLongStop);
-    
-    _btBypass.attachClick(onBypassClicked);
-    
+    _disp->clear();
     refreshUI();
 }
 
+
 void loop() {
-    _btPrev.tick();
-    _btNext.tick();
-    _btBypass.tick();
+
+#ifdef SERIAL_DEBUG
+    int c = Serial.read();
+    if (c == 'n') {
+        on_next(0);
+    }
+    else if (c == 'p') {
+        on_prev(0);
+    }
+#endif
+    _next.tick();
+    _prev.tick();
+    delay(50);
 }
